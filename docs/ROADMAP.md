@@ -6,7 +6,7 @@
 |---|---|---|
 | 0 | Exploration, DESIGN.md, ROADMAP.md | ✅ |
 | 1 | Squelette : dossiers, boucle de temps, état, SaveAdapter + LocalStorage, tests de base, page qui tourne | ✅ |
-| 2 | Moteur économique complet sur l'agence web, jouable de bout en bout, tests + simulation | ⬜ |
+| 2 | Moteur économique complet sur l'agence web, jouable de bout en bout, tests + simulation | ✅ |
 | 3 | Fiscalité belge, statuts, financement, employés | ⬜ |
 | 4 | Concurrents et événements (≥ 60) | ⬜ |
 | 5 | Les 4 autres secteurs | ⬜ |

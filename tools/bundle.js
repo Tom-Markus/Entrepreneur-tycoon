@@ -5,7 +5,7 @@
 // navigateurs y bloquent les modules ES.
 //
 // Il ne gère que le sous-ensemble de syntaxe utilisé dans ce projet :
-//   import { a, b as c } from './x.js';      import * as ns from './x.js';
+//   import { a, b as c } from './x.js';      import * as ns from './x.js';   import './x.js';
 //   export function / class / const / let     export { a, b as c };
 //   export { a } from './x.js';               export * as ns from './x.js';
 //
@@ -30,6 +30,7 @@ function resolveSpec(fromFile, spec) {
 }
 
 const IMPORT_RE = /import\s*(?:\{([^}]*)\}|\*\s+as\s+(\w+))\s*from\s*['"]([^'"]+)['"]\s*;?/g;
+const BARE_IMPORT_RE = /import\s*['"]([^'"]+)['"]\s*;?/g;
 const EXPORT_FROM_RE = /export\s*(?:\{([^}]*)\}|\*\s+as\s+(\w+)|\*)\s*from\s*['"]([^'"]+)['"]\s*;?/g;
 const EXPORT_LIST_RE = /export\s*\{([^}]*)\}\s*;?/g;
 const EXPORT_DECL_RE = /export\s+(async\s+function\*?|function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
@@ -74,6 +75,11 @@ function transform(file, src) {
     return `const { ${parts.join(', ')} } = ${ref};`;
   });
 
+  code = code.replace(BARE_IMPORT_RE, (_, spec) => {
+    deps.push(resolveSpec(file, spec));
+    return '';
+  });
+
   code = code.replace(EXPORT_LIST_RE, (_, list) => {
     for (const n of parseNames(list)) getters.push(`${JSON.stringify(n.exported)}: () => ${n.local}`);
     return '';
@@ -85,7 +91,7 @@ function transform(file, src) {
   });
 
   if (/\bexport\s+default\b/.test(code)) throw new Error(`export default non supporté (${file})`);
-  if (/\bimport\s*\(/.test(code)) throw new Error(`import() dynamique non supporté (${file})`);
+  if (/(\bawait\s+|[=(,]\s*)import\s*\(/.test(code)) throw new Error(`import() dynamique non supporté (${file})`);
   if (/import\.meta/.test(code)) throw new Error(`import.meta non supporté (${file})`);
 
   return { deps, getters, code };
