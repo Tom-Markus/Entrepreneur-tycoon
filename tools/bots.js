@@ -11,6 +11,9 @@ import { applyAction } from '../src/engine/index.js';
 import { upgradeList, canBuyUpgrade } from '../src/engine/upgrades.js';
 import { seatsAvailable, hasManager, monthlyPayroll, countRole } from '../src/engine/systems/staff.js';
 import { taxLiabilities } from '../src/engine/selectors.js';
+import { INVESTMENTS } from '../src/data/investments.js';
+import { propertyQuote } from '../src/engine/systems/investments.js';
+import { dateOf } from '../src/engine/calendar.js';
 
 export const STRATEGIES = ['passive', 'prudente', 'agressive', 'optimale'];
 
@@ -107,7 +110,38 @@ export function monthly(state, strategy, adapter) {
   }
   if (hasManager(state) && state.staff.founder.active && adapter && adapter.readyToRetire && adapter.readyToRetire(state)) act(state, { type: 'retire' });
 
-  // 8) Placements personnels (phase 6)
-  if (adapter && adapter.invest) adapter.invest(state, P);
+  // 8) Sortir l'argent de la société (SRL : dividendes) puis placer l'excédent personnel
+  if (state.meta.legal === 'srl' && dateOf(state.time.day).yearIdx >= 2 && state.tax.reserves > 0) {
+    const free = state.cash - reserve * 1.5;
+    const amt = Math.floor(Math.min(state.tax.reserves * 0.8, free) / 10_000) * 10_000;
+    if (amt >= 100_000) act(state, { type: 'payDividend', amount: amt });
+  }
+  invest(state, strategy, P);
+}
+
+/** Placements du compte personnel selon la stratégie. */
+export function invest(state, strategy) {
+  const keep = state.personal.livingCost * 6;
+  let surplus = state.personal.cash - keep;
+  if (surplus < 200_000) return;
+  const re = INVESTMENTS.realEstate.catalog;
+  if (strategy !== 'prudente' && state.investments.realEstate.length < (strategy === 'agressive' ? 4 : 2)) {
+    const down = strategy === 'agressive' ? 0.2 : 0.4;
+    const target = re.find((x) => propertyQuote(state, x, down).cash < surplus * 0.8 && x.price >= 14_000_000);
+    if (target && state.investments.etf.value > propertyQuote(state, target, down).cash * (strategy === 'agressive' ? 0 : 1)) {
+      if (act(state, { type: 'buyProperty', id: target.id, downPct: down }).ok) surplus = state.personal.cash - keep;
+    }
+  }
+  if (surplus < 200_000) return;
+  if (strategy === 'prudente') {
+    act(state, { type: 'deposit', amount: Math.round(surplus * 0.7) });
+    act(state, { type: 'buyAsset', kind: 'etf', amount: Math.round(surplus * 0.3) });
+  } else if (strategy === 'agressive') {
+    act(state, { type: 'buyAsset', kind: 'stocks', amount: Math.round(surplus * 0.6) });
+    act(state, { type: 'buyAsset', kind: 'etf', amount: Math.round(surplus * 0.35) });
+  } else {
+    act(state, { type: 'buyAsset', kind: 'etf', amount: Math.round(surplus * 0.85) });
+    act(state, { type: 'deposit', amount: Math.round(surplus * 0.1) });
+  }
 }
 

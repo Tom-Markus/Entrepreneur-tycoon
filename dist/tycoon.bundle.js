@@ -6144,6 +6144,319 @@ function upcoming(state, days = 400) {
 return __exports;
 })();
 
+// ---- src/data/investments.js ----
+__m["src/data/investments.js"] = (function () {
+const __exports = {};
+__def(__exports, { "INVESTMENTS": () => INVESTMENTS });
+// Placements du compte personnel. Rendements SIMULÉS (pas des prévisions !).
+// Les frais et taxes viennent de fiscalite.js. Montants en centimes.
+
+const INVESTMENTS = {
+  savings: {
+    label: 'Compte d’épargne réglementé',
+    // [approx] taux de base + prime de fidélité ≈ 0,55 × taux directeur + 0,4 %
+    rateFromBase: 0.55,
+    rateAdd: 0.004,
+  },
+  etf: {
+    label: 'ETF actions monde (capitalisant)',
+    annualReturn: 0.07, // [approx] moyenne historique long terme des actions mondiales
+    annualVol: 0.15,
+    brokerFee: 0.001, // frais de courtage
+    brokerMin: 100,
+  },
+  stocks: {
+    label: 'Panier d’actions individuelles',
+    annualReturn: 0.08,
+    annualVol: 0.25,
+    beta: 1.1, // sensibilité au marché
+    dividendYield: 0.025,
+    brokerFee: 0.002,
+    brokerMin: 200,
+  },
+  crash: {
+    monthlyProb: 0.004, // ≈ un krach tous les 20 ans
+    drop: [0.18, 0.35],
+  },
+  safeWithdrawalRate: 0.04, // règle des 4 % (revenu passif « bourse »)
+  realEstate: {
+    mortgageSpread: 0.013, // taux hypothécaire = taux directeur + 1,3 % [approx]
+    mortgageYears: 20,
+    minDownPayment: 0.2, // apport minimum (hors frais)
+    appreciation: 0.02, // hausse annuelle moyenne des prix [approx]
+    appreciationVol: 0.03,
+    maintenancePct: 0.01, // entretien annuel (% de la valeur)
+    vacancyProbYearly: 0.15, // probabilité qu'un locataire parte dans l'année
+    vacancyMonths: [1, 3],
+    sellFeePct: 0.03, // agence immobilière à la revente
+    rentIndexation: 0.02, // indexation annuelle des loyers
+    catalog: [
+      { id: 'studio', label: 'Studio à Liège', price: 14_500_000, rent: 65_000 },
+      { id: 'appart', label: 'Appartement 2 chambres à Namur', price: 23_000_000, rent: 95_000 },
+      { id: 'maison', label: 'Maison 3 façades à Charleroi', price: 21_000_000, rent: 105_000, maintenance: 0.015 },
+      { id: 'ixelles', label: 'Appartement à Ixelles (Bruxelles)', price: 34_000_000, rent: 135_000 },
+      { id: 'immeuble', label: 'Immeuble de rapport (4 logements) à Mons', price: 62_000_000, rent: 300_000, maintenance: 0.015 },
+    ],
+  },
+};
+return __exports;
+})();
+
+// ---- src/engine/systems/investments.js ----
+__m["src/engine/systems/investments.js"] = (function () {
+const __exports = {};
+__def(__exports, { "init": () => init, "savingsRate": () => savingsRate, "mortgageRate": () => mortgageRate, "tradeFees": () => tradeFees, "deposit": () => deposit, "withdraw": () => withdraw, "buy": () => buy, "sell": () => sell, "propertyQuote": () => propertyQuote, "buyProperty": () => buyProperty, "sellProperty": () => sellProperty, "monthlyPersonalIncome": () => monthlyPersonalIncome, "monthEnd": () => monthEnd, "yearEnd": () => yearEnd });
+// Placements personnels : épargne réglementée, ETF, actions, immobilier locatif.
+// Rendements simulés (log-normaux + krachs), frais (TOB, courtage, droits
+// d'enregistrement) et fiscalité belge simplifiée.
+
+const { INVESTMENTS: I } = __m["src/data/investments.js"];
+const { FISCALITE: F } = __m["src/data/fiscalite.js"];
+const { personalIn, personalOut } = __m["src/engine/ledger.js"];
+const { annuity, clamp } = __m["src/engine/money.js"];
+const { dateOf } = __m["src/engine/calendar.js"];
+const { log } = __m["src/engine/log.js"];
+
+function init(state) {
+  state.investments = {
+    savings: 0,
+    etf: { value: 0, basis: 0 },
+    stocks: { value: 0, basis: 0 },
+    realEstate: [],
+    reSeq: 0,
+    index: { etf: 100, stocks: 100 },
+    year: { interest: 0, dividends: 0, gains: 0, fees: 0, rent: 0 },
+    lastMonth: { interest: 0, dividends: 0, rentNet: 0 },
+    history: [],
+  };
+}
+
+function savingsRate(state) {
+  return clamp(state.world.baseRate * I.savings.rateFromBase + I.savings.rateAdd, 0.002, 0.05);
+}
+
+function mortgageRate(state) {
+  return state.world.baseRate + I.realEstate.mortgageSpread;
+}
+
+/** Frais d'une transaction en bourse : TOB plafonnée + courtage. */
+function tradeFees(kind, amount) {
+  const tob = kind === 'etf' ? F.tob.etf : F.tob.actions;
+  const cfg = I[kind];
+  return Math.round(Math.min(amount * tob.rate, tob.max) + Math.max(cfg.brokerMin, amount * cfg.brokerFee));
+}
+
+// --- Actions -----------------------------------------------------------------
+
+function deposit(state, amount) {
+  amount = Math.round(amount);
+  if (!(amount > 0) || amount > state.personal.cash) return { ok: false, message: 'Montant invalide ou compte perso insuffisant.' };
+  personalOut(state, amount, 'epargne');
+  state.investments.savings += amount;
+  return { ok: true };
+}
+
+function withdraw(state, amount) {
+  amount = Math.round(amount);
+  const inv = state.investments;
+  if (!(amount > 0) || amount > inv.savings) return { ok: false, message: 'Montant invalide.' };
+  inv.savings -= amount;
+  personalIn(state, amount, 'epargne');
+  return { ok: true };
+}
+
+function buy(state, kind, amount) {
+  amount = Math.round(amount);
+  if (!['etf', 'stocks'].includes(kind)) return { ok: false, message: 'Produit inconnu.' };
+  if (!(amount >= 10_000)) return { ok: false, message: 'Minimum 100 €.' };
+  const fees = tradeFees(kind, amount);
+  if (amount + fees > state.personal.cash) return { ok: false, message: 'Compte perso insuffisant (frais et TOB compris).' };
+  personalOut(state, amount + fees, 'bourse');
+  const p = state.investments[kind];
+  p.value += amount;
+  p.basis += amount;
+  state.investments.year.fees += fees;
+  state.stats.invested = (state.stats.invested || 0) + amount;
+  return { ok: true };
+}
+
+function sell(state, kind, amount) {
+  const p = state.investments[kind];
+  if (!p) return { ok: false, message: 'Produit inconnu.' };
+  amount = Math.min(Math.round(amount), p.value);
+  if (!(amount > 0)) return { ok: false, message: 'Rien à vendre.' };
+  const fees = tradeFees(kind, amount);
+  const basisPart = Math.round((p.basis * amount) / p.value);
+  state.investments.year.gains += amount - basisPart;
+  p.basis -= basisPart;
+  p.value -= amount;
+  personalIn(state, amount - fees, 'bourse');
+  state.investments.year.fees += fees;
+  return { ok: true };
+}
+
+/** Coût total d'achat d'un bien (prix + droits + notaire) et prêt nécessaire. */
+function propertyQuote(state, item, downPct) {
+  const fees = Math.round(item.price * (F.immobilier.droitsEnregistrement + F.immobilier.fraisNotaire));
+  const dp = clamp(downPct, I.realEstate.minDownPayment, 1);
+  const loan = Math.round(item.price * (1 - dp));
+  const cash = item.price - loan + fees;
+  const rate = mortgageRate(state);
+  const payment = loan > 0 ? annuity(loan, rate, I.realEstate.mortgageYears * 12) : 0;
+  return { fees, loan, cash, rate, payment };
+}
+
+function buyProperty(state, id, downPct = 0.2) {
+  const item = I.realEstate.catalog.find((x) => x.id === id);
+  if (!item) return { ok: false, message: 'Bien inconnu.' };
+  const q = propertyQuote(state, item, downPct);
+  if (q.cash > state.personal.cash) return { ok: false, message: `Il te faut ${Math.round(q.cash / 100)} € sur ton compte perso (apport + droits d'enregistrement + notaire).` };
+  // La banque vérifie que la mensualité reste supportable (≈ 1/3 des revenus mensuels connus).
+  const income = monthlyPersonalIncome(state);
+  const totalPay = state.investments.realEstate.reduce((s, p) => s + p.mortgage.payment, 0) + q.payment;
+  if (q.loan > 0 && totalPay > income * 0.5 + q.payment * 0.7) return { ok: false, message: 'La banque refuse le crédit : tes revenus ne couvrent pas assez les mensualités (augmente ton apport).' };
+  personalOut(state, q.cash, 'immobilier');
+  state.investments.reSeq += 1;
+  state.investments.realEstate.push({
+    id: state.investments.reSeq,
+    type: item.id,
+    label: item.label,
+    price: item.price,
+    value: item.price,
+    rent: item.rent,
+    maintenance: item.maintenance || I.realEstate.maintenancePct,
+    vacantUntil: state.time.day + 30, // le temps de trouver un locataire
+    mortgage: { remaining: q.loan, rate: q.rate, payment: q.payment, monthsLeft: q.loan > 0 ? I.realEstate.mortgageYears * 12 : 0 },
+    boughtDay: state.time.day,
+  });
+  state.stats.propertiesBought = (state.stats.propertiesBought || 0) + 1;
+  log(state, 'invest', `Achat : ${item.label} pour ${Math.round(item.price / 100)} € (+ ${Math.round(q.fees / 100)} € de droits et frais).`, true);
+  return { ok: true };
+}
+
+function sellProperty(state, pid) {
+  const inv = state.investments;
+  const p = inv.realEstate.find((x) => x.id === pid);
+  if (!p) return { ok: false, message: 'Bien introuvable.' };
+  const net = Math.round(p.value * (1 - I.realEstate.sellFeePct)) - p.mortgage.remaining;
+  if (net < 0 && -net > state.personal.cash) return { ok: false, message: 'La vente ne couvre pas le crédit restant.' };
+  if (net >= 0) personalIn(state, net, 'immobilier');
+  else personalOut(state, -net, 'immobilier');
+  inv.realEstate = inv.realEstate.filter((x) => x !== p);
+  log(state, 'invest', `Vente : ${p.label} (${Math.round(net / 100)} € net après remboursement du crédit).`, true);
+  return { ok: true };
+}
+
+/** Revenus mensuels connus du dirigeant (pour l'évaluation bancaire). */
+function monthlyPersonalIncome(state) {
+  const h = (state.personal.history || []).slice(-6);
+  let inc = 0;
+  for (const m of h) inc += Math.max(0, (m.revenu || 0) + (m.dividendes || 0) + (m.loyers || 0));
+  return h.length ? inc / h.length : state.personal.draw;
+}
+
+// --- Simulation mensuelle ----------------------------------------------------------
+
+function monthEnd(state, rng) {
+  const inv = state.investments;
+  const d = dateOf(state.time.day);
+  // Marché : facteur commun (ETF) + spécifique (actions)
+  const e = I.etf;
+  const muE = Math.log(1 + e.annualReturn) / 12 - (e.annualVol * e.annualVol) / 24;
+  const z = rng.normal(0, 1);
+  let rE = muE + (e.annualVol / Math.sqrt(12)) * z + (state.world.economy - 1) * 0.01;
+  if (rng.chance(I.crash.monthlyProb)) {
+    const drop = rng.range(I.crash.drop[0], I.crash.drop[1]);
+    rE += Math.log(1 - drop);
+    state.stats.crashes = (state.stats.crashes || 0) + 1;
+    log(state, 'invest', `Krach boursier : les marchés perdent ${Math.round(drop * 100)} % ! Garder son calme est souvent la meilleure stratégie.`, true);
+  }
+  const s = I.stocks;
+  const muS = Math.log(1 + s.annualReturn) / 12 - (s.annualVol * s.annualVol) / 24;
+  const idio = Math.sqrt(Math.max(0, (s.annualVol * s.annualVol) / 12 - (s.beta * s.beta * e.annualVol * e.annualVol) / 12));
+  const rS = muS + s.beta * (rE - muE) + idio * rng.normal(0, 1);
+  inv.index.etf *= Math.exp(rE);
+  inv.index.stocks *= Math.exp(rS);
+  inv.etf.value = Math.round(inv.etf.value * Math.exp(rE));
+  inv.stocks.value = Math.round(inv.stocks.value * Math.exp(rS));
+  // Dividendes trimestriels des actions (précompte 30 % retenu)
+  let divNet = 0;
+  if (d.month % 3 === 2 && inv.stocks.value > 0) {
+    const gross = Math.round((inv.stocks.value * s.dividendYield) / 4);
+    divNet = Math.round(gross * (1 - F.dividendes.precompte));
+    personalIn(state, divNet, 'dividendes');
+    inv.year.dividends += gross;
+    state.tax.year.dividendsGross += gross;
+    state.tax.year.dividendRateMax = Math.max(state.tax.year.dividendRateMax, F.dividendes.precompte);
+  }
+  // Épargne : intérêts capitalisés
+  const interest = Math.round((inv.savings * savingsRate(state)) / 12);
+  inv.savings += interest;
+  inv.year.interest += interest;
+  // Immobilier
+  let rentNet = 0;
+  const R = I.realEstate;
+  for (const p of inv.realEstate) {
+    const occupied = p.vacantUntil <= state.time.day;
+    if (occupied) {
+      personalIn(state, p.rent, 'loyers');
+      inv.year.rent += p.rent;
+      rentNet += p.rent;
+      if (rng.chance(R.vacancyProbYearly / 12)) {
+        p.vacantUntil = state.time.day + 30 * rng.int(R.vacancyMonths[0], R.vacancyMonths[1]);
+        log(state, 'invest', `${p.label} : le locataire part, logement vide quelques mois.`);
+      }
+    }
+    const maint = Math.round((p.value * p.maintenance) / 12);
+    personalOut(state, maint, 'immobilier');
+    rentNet -= maint;
+    if (p.mortgage.remaining > 0) {
+      const intr = Math.round((p.mortgage.remaining * p.mortgage.rate) / 12);
+      const princ = Math.min(p.mortgage.remaining, p.mortgage.payment - intr);
+      personalOut(state, intr + princ, 'credit_hypothecaire');
+      p.mortgage.remaining -= princ;
+      p.mortgage.monthsLeft -= 1;
+      rentNet -= intr + princ;
+    }
+    // Précompte immobilier (septembre)
+    if (d.month === 8) {
+      const pi = Math.round(p.rent * F.immobilier.precompteMoisLoyer);
+      personalOut(state, pi, 'impots_perso');
+      rentNet -= pi;
+    }
+    const g = Math.log(1 + R.appreciation) / 12 + rng.normal(0, R.appreciationVol / Math.sqrt(12));
+    p.value = Math.round(p.value * Math.exp(g));
+  }
+  inv.lastMonth = { interest, dividends: divNet, rentNet };
+  inv.history.push({ m: Math.floor(state.time.day / 30), savings: inv.savings, etf: inv.etf.value, stocks: inv.stocks.value, re: inv.realEstate.reduce((t, p) => t + p.value - p.mortgage.remaining, 0) });
+  if (inv.history.length > 600) inv.history.shift();
+}
+
+function yearEnd(state) {
+  const inv = state.investments;
+  // Épargne : 15 % au-delà de l'exonération
+  const taxSav = Math.round(Math.max(0, inv.year.interest - F.epargne.exemptInterest) * F.epargne.taxRate);
+  if (taxSav > 0) inv.savings = Math.max(0, inv.savings - taxSav);
+  // Plus-values financières : 10 % au-delà de 10 000 €
+  const taxGains = Math.round(Math.max(0, inv.year.gains - F.plusValues.exemption) * F.plusValues.rate);
+  if (taxGains > 0) personalOut(state, taxGains, 'impots_perso');
+  // Taxe sur les comptes-titres
+  const titres = inv.etf.value + inv.stocks.value;
+  let tact = 0;
+  if (titres > F.tact.threshold) tact = Math.round(Math.min(titres * F.tact.rate, (titres - F.tact.threshold) * 0.1));
+  if (tact > 0) personalOut(state, tact, 'impots_perso');
+  // IPP approximé sur les loyers
+  const taxRent = Math.round(inv.year.rent * F.immobilier.ippSurLoyer);
+  if (taxRent > 0) personalOut(state, taxRent, 'impots_perso');
+  // Indexation des loyers
+  for (const p of inv.realEstate) p.rent = Math.round(p.rent * (1 + I.realEstate.rentIndexation));
+  const total = taxSav + taxGains + tact + taxRent;
+  if (total > 0) log(state, 'tax', `Fiscalité de tes placements ${dateOf(state.time.day).year} : ${Math.round(total / 100)} € (épargne, plus-values, comptes-titres, loyers).`);
+  inv.year = { interest: 0, dividends: 0, gains: 0, fees: 0, rent: 0 };
+}
+return __exports;
+})();
+
 // ---- src/engine/systems/living.js ----
 __m["src/engine/systems/living.js"] = (function () {
 const __exports = {};
@@ -6154,6 +6467,260 @@ const { endOfMonthLiving } = __m["src/engine/systems/owner.js"];
 
 function monthEnd(state) {
   endOfMonthLiving(state);
+}
+return __exports;
+})();
+
+// ---- src/engine/selectors.js ----
+__m["src/engine/selectors.js"] = (function () {
+const __exports = {};
+__def(__exports, { "debtTotal": () => debtTotal, "investmentsValue": () => investmentsValue, "taxLiabilities": () => taxLiabilities, "netWorth": () => netWorth, "kpis": () => kpis, "lastMonths": () => lastMonths, "passiveIncome": () => passiveIncome });
+// Valeurs dérivées de l'état, utilisées par l'interface, le score et les bots.
+
+const { bookValue, receivablesTotal } = __m["src/engine/ledger.js"];
+const { sectorModule } = __m["src/engine/sectors/index.js"];
+
+/** Dettes bancaires restantes (capital). */
+function debtTotal(state) {
+  let d = 0;
+  for (const l of state.loans || []) d += l.remaining;
+  return d;
+}
+
+/** Valeur du portefeuille personnel (placements + immobilier net de crédit). */
+function investmentsValue(state) {
+  const inv = state.investments;
+  if (!inv) return 0;
+  let v = inv.savings + inv.etf.value + inv.stocks.value;
+  for (const p of inv.realEstate) v += p.value - p.mortgage.remaining;
+  return v;
+}
+
+/** Dettes fiscales déjà connues mais pas encore payées. */
+function taxLiabilities(state) {
+  let t = 0;
+  if (state.tax) for (const s of state.tax.schedule) if (s.amount > 0) t += s.amount;
+  if (state.finance) t += Math.max(0, state.finance.vat.collected - state.finance.vat.deductible);
+  return t;
+}
+
+/**
+ * Patrimoine net du fondateur ≈ part de l'entreprise (trésorerie + créances +
+ * stock + actifs − dettes) + compte perso + placements.
+ */
+function netWorth(state) {
+  const ownership = state.ownership ? state.ownership.founder : 1;
+  const m = sectorModule(state);
+  const stock = m.stockValue ? m.stockValue(state) : 0;
+  const business = state.cash + receivablesTotal(state) + stock + bookValue(state) - debtTotal(state) - taxLiabilities(state);
+  // SRL : responsabilité limitée (une société en négatif vaut 0 pour le fondateur).
+  const share = business > 0 ? Math.round(business * ownership) : state.meta.legal === 'srl' ? 0 : business;
+  return share + state.personal.cash + investmentsValue(state);
+}
+
+function kpis(state) {
+  const m = sectorModule(state);
+  return m.kpis ? m.kpis(state) : [];
+}
+
+function lastMonths(state, n = 12) {
+  return state.finance.history.slice(-n);
+}
+
+/**
+ * Revenu passif mensuel net (voir docs/DESIGN.md § 11.2). Le détail est
+ * calculé chaque fin de mois par passive.js ; on lit le dernier résultat.
+ */
+function passiveIncome(state) {
+  const p = state.passive || { total: 0, avg3: 0, parts: {} };
+  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: state.passiveTarget || 0 };
+}
+return __exports;
+})();
+
+// ---- src/engine/systems/passive.js ----
+__m["src/engine/systems/passive.js"] = (function () {
+const __exports = {};
+__def(__exports, { "init": () => init, "businessPassive": () => businessPassive, "computePassive": () => computePassive, "monthEnd": () => monthEnd });
+// Revenu passif mensuel net, patrimoine, victoire (voir docs/DESIGN.md § 11.2).
+
+const { INVESTMENTS: I } = __m["src/data/investments.js"];
+const { FISCALITE: F } = __m["src/data/fiscalite.js"];
+const { hasManager } = __m["src/engine/systems/staff.js"];
+const { savingsRate } = __m["src/engine/systems/investments.js"];
+const { netWorth } = __m["src/engine/selectors.js"];
+const { ippTax, socialAnnualDue, socialBaseFromProfit, isocTax, reducedRateEligible, directorIpp } = __m["src/engine/taxmath.js"];
+const { log } = __m["src/engine/log.js"];
+
+function init(state) {
+  state.passive = { total: 0, avg3: 0, parts: {}, history: [] };
+}
+
+/** Bénéfice net mensuel que l'entreprise verse au fondateur, après impôts (estimation). */
+function businessPassive(state) {
+  if (state.staff.founder.active || !hasManager(state)) return 0;
+  const h = state.finance.history.slice(-6);
+  if (!h.length) return 0;
+  const profit = h.reduce((s, x) => s + x.profit, 0) / h.length;
+  if (state.meta.legal === 'srl') {
+    const pay = state.personal.draw;
+    const annualProfit = Math.max(0, profit * 12);
+    const isoc = isocTax(annualProfit, reducedRateEligible(pay * 12, annualProfit));
+    const dividends = (annualProfit - isoc) * (1 - F.dividendes.vvprbisYear3) * state.ownership.founder;
+    const salary = pay * 12 - directorIpp(pay * 12) - socialAnnualDue(socialBaseFromProfit(pay * 12));
+    return Math.max(0, Math.round((dividends + Math.max(0, salary)) / 12));
+  }
+  const annual = Math.max(0, profit * 12);
+  const social = socialAnnualDue(socialBaseFromProfit(annual));
+  const net = annual - social - ippTax(Math.max(0, annual - social)).total;
+  return Math.max(0, Math.round(net / 12));
+}
+
+/** Décomposition du revenu passif mensuel net. */
+function computePassive(state) {
+  const inv = state.investments;
+  const epargne = Math.round((inv.savings * savingsRate(state) * (1 - (inv.savings * savingsRate(state) > F.epargne.exemptInterest ? F.epargne.taxRate : 0))) / 12);
+  const portfolio = inv.etf.value + inv.stocks.value;
+  // Règle des 4 % nette d'une taxe sur les plus-values estimée
+  const bourse = Math.round((portfolio * I.safeWithdrawalRate * (1 - F.plusValues.rate * 0.5)) / 12);
+  let immobilier = 0;
+  for (const p of inv.realEstate) {
+    const expectedRent = p.rent * (1 - I.realEstate.vacancyProbYearly * 0.17);
+    const costs = (p.value * p.maintenance) / 12 + (p.rent * F.immobilier.precompteMoisLoyer) / 12 + p.rent * F.immobilier.ippSurLoyer;
+    immobilier += expectedRent - costs - (p.mortgage.remaining > 0 ? p.mortgage.payment : 0);
+  }
+  immobilier = Math.round(immobilier);
+  const entreprise = businessPassive(state);
+  const parts = { epargne, bourse, immobilier, entreprise };
+  return { parts, total: epargne + bourse + immobilier + entreprise };
+}
+
+function monthEnd(state) {
+  const p = state.passive;
+  const c = computePassive(state);
+  p.parts = c.parts;
+  p.total = c.total;
+  p.history.push(c.total);
+  if (p.history.length > 600) p.history.shift();
+  const last3 = p.history.slice(-3);
+  p.avg3 = Math.round(last3.reduce((a, b) => a + b, 0) / last3.length);
+  // Compléter l'instantané du mois
+  const snap = state.finance.history[state.finance.history.length - 1];
+  if (snap) {
+    snap.passive = p.total;
+    snap.netWorth = netWorth(state);
+  }
+  // Victoire : moyenne sur 3 mois ≥ objectif
+  if (state.status === 'playing' && last3.length === 3 && p.avg3 >= state.passiveTarget) {
+    state.status = 'won';
+    state.endgame.wonDay = state.time.day;
+    log(state, 'good', 'LIBERTÉ FINANCIÈRE ! Tes revenus passifs couvrent ton objectif.', true);
+  }
+}
+return __exports;
+})();
+
+// ---- src/data/achievements.js ----
+__m["src/data/achievements.js"] = (function () {
+const __exports = {};
+__def(__exports, { "ACHIEVEMENTS": () => ACHIEVEMENTS });
+// Succès (achievements). check(state) est évalué chaque fin de mois et après
+// certaines actions. Les fonctions ne lisent que l'état (aucun effet de bord).
+
+const revenue = (s) => s.finance.totals.revenue;
+const profitMonths = (s, min) => s.finance.history.filter((h) => h.profit >= min).length;
+const employees = (s) => s.staff.employees.length;
+const inv = (s) => s.investments;
+const portfolio = (s) => inv(s).etf.value + inv(s).stocks.value + inv(s).savings;
+const years = (s) => s.time.day / 360;
+const alive = (s) => s.status !== 'bankrupt';
+
+const ACHIEVEMENTS = [
+  { id: 'premiere_vente', icon: '🪙', label: 'Premier client', desc: 'Encaisser ta première vente.', check: (s) => revenue(s) > 0 },
+  { id: 'ca_10k', icon: '💶', label: '10 000 € de chiffre d’affaires', desc: 'Atteindre 10 000 € de CA cumulé.', check: (s) => revenue(s) >= 1_000_000 },
+  { id: 'ca_100k', icon: '💰', label: '100 000 € de chiffre d’affaires', desc: 'Atteindre 100 000 € de CA cumulé.', check: (s) => revenue(s) >= 10_000_000 },
+  { id: 'ca_1m', icon: '🏆', label: 'Le million', desc: 'Atteindre 1 000 000 € de CA cumulé.', check: (s) => revenue(s) >= 100_000_000 },
+  { id: 'premier_employe', icon: '🤝', label: 'Premier engagement', desc: 'Recruter ton premier salarié.', check: (s) => (s.stats.hires || 0) >= 1 },
+  { id: 'equipe_5', icon: '👥', label: 'Une vraie équipe', desc: 'Avoir 5 employés en même temps.', check: (s) => (s.stats.maxEmployees || 0) >= 5 },
+  { id: 'equipe_10', icon: '🏢', label: 'PME', desc: 'Avoir 10 employés en même temps.', check: (s) => (s.stats.maxEmployees || 0) >= 10 },
+  { id: 'formation', icon: '🎓', label: 'Investir dans les gens', desc: 'Former 5 fois un employé.', check: (s) => (s.stats.trainings || 0) >= 5 },
+  { id: 'controle_fiscal', icon: '🧾', label: 'Comptes impeccables', desc: 'Sortir indemne d’un contrôle fiscal.', check: (s) => (s.stats.taxAuditsSurvived || 0) >= 1 },
+  { id: 'inspection', icon: '🔍', label: 'Tout est en règle', desc: 'Réussir une inspection sociale.', check: (s) => (s.stats.socialAuditsSurvived || 0) >= 1 },
+  { id: 'tva_payee', icon: '📅', label: 'Premier trimestre', desc: 'Payer ta première déclaration de TVA.', check: (s) => (s.stats.vatPaid || 0) >= 1 },
+  { id: 'annee_1', icon: '🎂', label: 'Un an déjà', desc: 'Survivre à ta première année.', check: (s) => years(s) >= 1 && alive(s) },
+  { id: 'annee_5', icon: '🗓', label: 'Cap des 5 ans', desc: 'Toujours là après 5 ans (la moitié des entreprises n’y arrivent pas).', check: (s) => years(s) >= 5 && alive(s) },
+  { id: 'mois_5k', icon: '📈', label: 'Rentable', desc: 'Un mois avec 5 000 € de bénéfice.', check: (s) => profitMonths(s, 500_000) >= 1 },
+  { id: 'mois_20k', icon: '🚀', label: 'Machine à cash', desc: 'Un mois avec 20 000 € de bénéfice.', check: (s) => profitMonths(s, 2_000_000) >= 1 },
+  { id: 'remontada', icon: '🧗', label: 'Remontada', desc: 'Sortir d’une trésorerie négative.', check: (s) => (s.endgame?.recoveredFromNegative || 0) >= 1 },
+  { id: 'pret_rembourse', icon: '🏦', label: 'Dette remboursée', desc: 'Rembourser entièrement un prêt bancaire.', check: (s) => (s.stats.loansRepaid || 0) >= 1 },
+  { id: 'zero_dette', icon: '🕊', label: 'Libre de dettes', desc: 'Plus aucun prêt après en avoir eu.', check: (s) => (s.stats.loansTaken || 0) >= 1 && s.loans.length === 0 },
+  { id: 'levee_fonds', icon: '🦄', label: 'Levée de fonds', desc: 'Faire entrer un investisseur au capital.', check: (s) => (s.stats.fundraises || 0) >= 1 },
+  { id: 'dividende', icon: '🍾', label: 'Premier dividende', desc: 'Te verser un dividende (SRL).', check: (s) => (s.stats.dividendsTotal || 0) > 0 },
+  { id: 'premier_placement', icon: '🌱', label: 'Premier placement', desc: 'Acheter ton premier ETF ou tes premières actions.', check: (s) => (s.stats.invested || 0) > 0 },
+  { id: 'portefeuille_100k', icon: '📊', label: 'Portefeuille à 100 000 €', desc: 'Épargne + bourse ≥ 100 000 €.', check: (s) => portfolio(s) >= 10_000_000 },
+  { id: 'immo_1', icon: '🏠', label: 'Propriétaire bailleur', desc: 'Acheter ton premier bien locatif.', check: (s) => (s.stats.propertiesBought || 0) >= 1 },
+  { id: 'immo_3', icon: '🏘', label: 'Petit empire immobilier', desc: 'Posséder 3 biens en même temps.', check: (s) => inv(s).realEstate.length >= 3 },
+  { id: 'passif_1000', icon: '🌤', label: '1 000 € de revenu passif', desc: 'Revenu passif mensuel ≥ 1 000 €.', check: (s) => (s.passive?.total || 0) >= 100_000 },
+  { id: 'liberte', icon: '🏝', label: 'Liberté financière', desc: 'Atteindre ton objectif de revenu passif.', check: (s) => s.endgame?.wonDay != null },
+  { id: 'sans_credit', icon: '💪', label: 'Sans l’aide des banques', desc: 'Atteindre la liberté financière sans jamais emprunter.', check: (s) => s.endgame?.wonDay != null && !(s.stats.loansTaken > 0) },
+  { id: 'millionnaire', icon: '💎', label: 'Millionnaire', desc: 'Patrimoine net ≥ 1 000 000 €.', check: (s) => s.finance.history.some((h) => (h.netWorth || 0) >= 100_000_000) },
+  { id: 'reputation_80', icon: '⭐', label: 'Réputation en or', desc: 'Réputation ≥ 80.', check: (s) => s.company.reputation >= 80 },
+  { id: 'leader', icon: '👑', label: 'Leader du marché', desc: 'Part de marché ≥ 40 %.', check: (s) => s.company.share >= 0.4 },
+  { id: 'concurrent_ko', icon: '🥊', label: 'Survivant', desc: 'Voir un concurrent faire faillite.', check: (s) => (s.stats.competitorsBankrupt || 0) >= 1 },
+  { id: 'ameliorations_10', icon: '🔧', label: 'Toujours mieux', desc: 'Acheter 10 améliorations.', check: (s) => (s.stats.upgradesBought || 0) >= 10 },
+  { id: 'retraite', icon: '🧘', label: 'Délégation réussie', desc: 'Te retirer de l’opérationnel au profit d’un gérant.', check: (s) => s.stats.retiredDay != null },
+  { id: 'crise', icon: '🌪', label: 'Tempête traversée', desc: 'Survivre à une crise économique.', check: (s) => (s.stats.crisesSurvived || 0) >= 1 && alive(s) },
+  { id: 'krach', icon: '📉', label: 'Mains de diamant', desc: 'Garder ses placements pendant un krach boursier.', check: (s) => (s.stats.crashes || 0) >= 1 && inv(s).etf.value + inv(s).stocks.value > 0 },
+  { id: 'fidele', icon: '❤️', label: 'Fidélité', desc: 'Un employé avec 3 ans d’ancienneté.', check: (s) => s.staff.employees.some((e) => s.time.day - e.hiredDay >= 1080) },
+  // Un par secteur
+  { id: 'saas', icon: '☁️', label: 'Éditeur de logiciel', desc: 'Agence : mettre ton SaaS en ligne.', sector: 'agence', check: (s) => s.flags.saasLive === true },
+  { id: 'friterie_300', icon: '🍟', label: 'Rush du samedi', desc: 'Friterie : servir 300 clients en une journée.', sector: 'restaurant', check: (s) => (s.sector.stats?.bestDay || 0) >= 300 },
+  { id: 'afsca', icon: '😊', label: 'Smiley AFSCA', desc: 'Friterie : réussir 3 contrôles AFSCA.', sector: 'restaurant', check: (s) => (s.stats.afscaOk || 0) >= 3 },
+  { id: 'ecom_100', icon: '📦', label: 'Cent colis', desc: 'E-commerce : 100 commandes en une journée.', sector: 'ecommerce', check: (s) => (s.sector.stats?.bestDay || 0) >= 100 },
+  { id: 'artisan_50', icon: '🛠', label: 'Artisan reconnu', desc: 'Artisan : terminer 50 chantiers.', sector: 'artisan', check: (s) => (s.sector.stats?.jobsDone || 0) >= 50 },
+  { id: 'soutien_90', icon: '🎯', label: 'Taux de réussite record', desc: 'Soutien scolaire : 90 % de réussite à une session.', sector: 'soutien', check: (s) => (s.sector.stats?.bestSuccess || 0) >= 0.9 },
+];
+return __exports;
+})();
+
+// ---- src/engine/systems/achievements.js ----
+__m["src/engine/systems/achievements.js"] = (function () {
+const __exports = {};
+__def(__exports, { "init": () => init, "checkAchievements": () => checkAchievements, "monthEnd": () => monthEnd, "daily": () => daily });
+// Déblocage des succès (vérifiés chaque jour de fin de mois et via checkAchievements).
+
+const { ACHIEVEMENTS } = __m["src/data/achievements.js"];
+const { log } = __m["src/engine/log.js"];
+
+function init(state) {
+  state.achievements = { unlocked: {} };
+}
+
+function checkAchievements(state) {
+  const u = state.achievements.unlocked;
+  for (const a of ACHIEVEMENTS) {
+    if (u[a.id] != null) continue;
+    if (a.sector && a.sector !== state.meta.sector) continue;
+    let ok = false;
+    try {
+      ok = a.check(state);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      u[a.id] = state.time.day;
+      log(state, 'good', `🏅 Succès débloqué : ${a.label}`, true);
+    }
+  }
+}
+
+function monthEnd(state) {
+  checkAchievements(state);
+}
+
+/** Les plus rapides (première vente) sont aussi vérifiés chaque semaine. */
+function daily(state) {
+  if (state.time.day % 7 === 0) checkAchievements(state);
 }
 return __exports;
 })();
@@ -6433,6 +7000,8 @@ const staff = __m["src/engine/systems/staff.js"];
 const { personalOut, personalIn, receive, pay } = __m["src/engine/ledger.js"];
 const loans = __m["src/engine/systems/loans.js"];
 const { decide } = __m["src/engine/events.js"];
+const inv = __m["src/engine/systems/investments.js"];
+const { checkAchievements } = __m["src/engine/systems/achievements.js"];
 const { dividendRate } = __m["src/engine/taxmath.js"];
 const { dateOf } = __m["src/engine/calendar.js"];
 const { clamp } = __m["src/engine/money.js"];
@@ -6502,6 +7071,34 @@ registerActions({
   decide(state, a, rng) {
     return decide(state, a.uid, a.choice, rng);
   },
+  deposit(state, a) {
+    return inv.deposit(state, Number(a.amount));
+  },
+  withdraw(state, a) {
+    return inv.withdraw(state, Number(a.amount));
+  },
+  buyAsset(state, a) {
+    const r = inv.buy(state, a.kind, Number(a.amount));
+    if (r.ok) checkAchievements(state);
+    return r;
+  },
+  sellAsset(state, a) {
+    return inv.sell(state, a.kind, Number(a.amount));
+  },
+  buyProperty(state, a) {
+    const r = inv.buyProperty(state, a.id, Number(a.downPct ?? 0.2));
+    if (r.ok) checkAchievements(state);
+    return r;
+  },
+  sellProperty(state, a) {
+    return inv.sellProperty(state, a.id);
+  },
+  continueSandbox(state) {
+    if (state.status !== 'won') return { ok: false, message: 'Disponible après la victoire.' };
+    state.status = 'sandbox';
+    log(state, 'info', 'Mode bac à sable : la partie continue sans fin. Les succès restent à débloquer !');
+    return { ok: true };
+  },
   requestLoan(state, a) {
     return loans.requestLoan(state, Number(a.amount), Number(a.months));
   },
@@ -6568,7 +7165,8 @@ __def(__exports, { "SYSTEMS": () => SYSTEMS, "initHooks": () => initHooks });
 // Chaque système peut exposer : init(state, opts, diff, rng), daily(state, rng),
 // monthEnd(state, rng), quarterEnd(state, rng), yearEnd(state, rng), endOfDay(state, rng).
 // L'ordre du tableau est l'ordre d'exécution (important pour le déterminisme) :
-//   monde → entreprise → concurrents → secteur → équipe → événements → prêts → dirigeant → fiscalité → coût de la vie → finance → fin de partie
+//   monde → entreprise → concurrents → secteur → équipe → événements → prêts → dirigeant → fiscalité
+//   → placements → coût de la vie → finance → revenu passif → succès → fin de partie
 
 const core = __m["src/engine/systems/core.js"];
 const company = __m["src/engine/systems/company.js"];
@@ -6579,12 +7177,15 @@ const staff = __m["src/engine/systems/staff.js"];
 const loans = __m["src/engine/systems/loans.js"];
 const owner = __m["src/engine/systems/owner.js"];
 const tax = __m["src/engine/systems/tax.js"];
+const investments = __m["src/engine/systems/investments.js"];
 const living = __m["src/engine/systems/living.js"];
 const finance = __m["src/engine/systems/finance.js"];
+const passive = __m["src/engine/systems/passive.js"];
+const achievements = __m["src/engine/systems/achievements.js"];
 const endgame = __m["src/engine/systems/endgame.js"];
 
 
-const SYSTEMS = [core, company, competitors, sector, staff, events, loans, owner, tax, living, finance, endgame];
+const SYSTEMS = [core, company, competitors, sector, staff, events, loans, owner, tax, investments, living, finance, passive, achievements, endgame];
 
 function initHooks() {
   return SYSTEMS.filter((s) => s.init).map((s) => s.init);
@@ -6766,10 +7367,49 @@ function migrate(state, migrations = MIGRATIONS, target = CONFIG.saveVersion) {
 return __exports;
 })();
 
+// ---- src/engine/score.js ----
+__m["src/engine/score.js"] = (function () {
+const __exports = {};
+__def(__exports, { "SCORE_VERSION": () => SCORE_VERSION, "computeScore": () => computeScore });
+// =============================================================================
+//  computeScore(state) — fonction PURE (aucun effet de bord), base du futur
+//  classement (V2). Toute modification doit rester rétro-compatible ou
+//  incrémenter SCORE_VERSION.
+//
+//  score = arrondi((base + passif + victoire + succès) × multDifficulté × multFaillite)
+//    base      = patrimoine net en € / 100          (1 point par 100 € de patrimoine)
+//    passif    = revenu passif mensuel net en € × 2
+//    victoire  = 5 000 + 25 × max(0, 240 − mois nécessaires pour gagner)  (si gagné)
+//    succès    = 50 × nombre de succès débloqués
+//    multDifficulté : Facile 0,8 · Normal 1 · Réaliste 1,25 · Difficile 1,5
+//    multFaillite   : 0,25 si faillite, sinon 1
+//  Le score ne descend jamais sous 0.
+// =============================================================================
+
+const { DIFFICULTIES } = __m["src/data/difficulty.js"];
+const { netWorth, passiveIncome } = __m["src/engine/selectors.js"];
+
+const SCORE_VERSION = 1;
+
+function computeScore(state) {
+  const nw = netWorth(state);
+  const base = nw / 10_000; // centimes → € / 100
+  const passive = (passiveIncome(state).total / 100) * 2;
+  const wonDay = state.endgame && state.endgame.wonDay;
+  const victory = wonDay != null ? 5000 + 25 * Math.max(0, 240 - Math.floor(wonDay / 30)) : 0;
+  const achievements = 50 * Object.keys((state.achievements && state.achievements.unlocked) || {}).length;
+  const diffMult = (DIFFICULTIES[state.meta.difficulty] || DIFFICULTIES.normal).scoreMult;
+  const bankruptMult = state.status === 'bankrupt' ? 0.25 : 1;
+  const total = Math.max(0, Math.round((base + passive + victory + achievements) * diffMult * bankruptMult));
+  return { total, version: SCORE_VERSION, parts: { base: Math.round(base), passive: Math.round(passive), victory, achievements, diffMult, bankruptMult } };
+}
+return __exports;
+})();
+
 // ---- src/engine/index.js ----
 __m["src/engine/index.js"] = (function () {
 const __exports = {};
-__def(__exports, { "newGame": () => __m["src/engine/state.js"]["newGame"], "DEFAULT_OPTIONS": () => __m["src/engine/state.js"]["DEFAULT_OPTIONS"], "tick": () => __m["src/engine/tick.js"]["tick"], "advance": () => __m["src/engine/tick.js"]["advance"], "stepDay": () => __m["src/engine/tick.js"]["stepDay"], "isBlocked": () => __m["src/engine/tick.js"]["isBlocked"], "applyAction": () => __m["src/engine/actions.js"]["applyAction"], "knownActions": () => __m["src/engine/actions.js"]["knownActions"], "createRng": () => __m["src/engine/rng.js"]["createRng"], "hashSeed": () => __m["src/engine/rng.js"]["hashSeed"], "migrate": () => __m["src/engine/migrations.js"]["migrate"], "calendar": () => __m["src/engine/calendar.js"], "money": () => __m["src/engine/money.js"] });
+__def(__exports, { "newGame": () => __m["src/engine/state.js"]["newGame"], "DEFAULT_OPTIONS": () => __m["src/engine/state.js"]["DEFAULT_OPTIONS"], "tick": () => __m["src/engine/tick.js"]["tick"], "advance": () => __m["src/engine/tick.js"]["advance"], "stepDay": () => __m["src/engine/tick.js"]["stepDay"], "isBlocked": () => __m["src/engine/tick.js"]["isBlocked"], "applyAction": () => __m["src/engine/actions.js"]["applyAction"], "knownActions": () => __m["src/engine/actions.js"]["knownActions"], "createRng": () => __m["src/engine/rng.js"]["createRng"], "hashSeed": () => __m["src/engine/rng.js"]["hashSeed"], "migrate": () => __m["src/engine/migrations.js"]["migrate"], "calendar": () => __m["src/engine/calendar.js"], "money": () => __m["src/engine/money.js"], "computeScore": () => __m["src/engine/score.js"]["computeScore"] });
 // API publique du moteur. L'interface et les outils n'importent que ce fichier.
 return __exports;
 })();
@@ -8451,73 +9091,6 @@ function defaultName() {
 return __exports;
 })();
 
-// ---- src/engine/selectors.js ----
-__m["src/engine/selectors.js"] = (function () {
-const __exports = {};
-__def(__exports, { "debtTotal": () => debtTotal, "investmentsValue": () => investmentsValue, "taxLiabilities": () => taxLiabilities, "netWorth": () => netWorth, "kpis": () => kpis, "lastMonths": () => lastMonths, "passiveIncome": () => passiveIncome });
-// Valeurs dérivées de l'état, utilisées par l'interface, le score et les bots.
-
-const { bookValue, receivablesTotal } = __m["src/engine/ledger.js"];
-const { sectorModule } = __m["src/engine/sectors/index.js"];
-
-/** Dettes bancaires restantes (capital). */
-function debtTotal(state) {
-  let d = 0;
-  for (const l of state.loans || []) d += l.remaining;
-  return d;
-}
-
-/** Valeur du portefeuille personnel (placements + immobilier net de crédit). */
-function investmentsValue(state) {
-  const inv = state.investments;
-  if (!inv) return 0;
-  let v = inv.savings + inv.etf.value + inv.stocks.value;
-  for (const p of inv.realEstate) v += p.value - p.mortgage.remaining;
-  return v;
-}
-
-/** Dettes fiscales déjà connues mais pas encore payées. */
-function taxLiabilities(state) {
-  let t = 0;
-  if (state.tax) for (const s of state.tax.schedule) if (s.amount > 0) t += s.amount;
-  if (state.finance) t += Math.max(0, state.finance.vat.collected - state.finance.vat.deductible);
-  return t;
-}
-
-/**
- * Patrimoine net du fondateur ≈ part de l'entreprise (trésorerie + créances +
- * stock + actifs − dettes) + compte perso + placements.
- */
-function netWorth(state) {
-  const ownership = state.ownership ? state.ownership.founder : 1;
-  const m = sectorModule(state);
-  const stock = m.stockValue ? m.stockValue(state) : 0;
-  const business = state.cash + receivablesTotal(state) + stock + bookValue(state) - debtTotal(state) - taxLiabilities(state);
-  // SRL : responsabilité limitée (une société en négatif vaut 0 pour le fondateur).
-  const share = business > 0 ? Math.round(business * ownership) : state.meta.legal === 'srl' ? 0 : business;
-  return share + state.personal.cash + investmentsValue(state);
-}
-
-function kpis(state) {
-  const m = sectorModule(state);
-  return m.kpis ? m.kpis(state) : [];
-}
-
-function lastMonths(state, n = 12) {
-  return state.finance.history.slice(-n);
-}
-
-/**
- * Revenu passif mensuel net (voir docs/DESIGN.md § 11.2). Le détail est
- * calculé chaque fin de mois par passive.js ; on lit le dernier résultat.
- */
-function passiveIncome(state) {
-  const p = state.passive || { total: 0, avg3: 0, parts: {} };
-  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: state.passiveTarget || 0 };
-}
-return __exports;
-})();
-
 // ---- src/ui/sectorui/agence.js ----
 __m["src/ui/sectorui/agence.js"] = (function () {
 const __exports = {};
@@ -9325,6 +9898,224 @@ const panel = {
 return __exports;
 })();
 
+// ---- src/ui/screens/end.js ----
+__m["src/ui/screens/end.js"] = (function () {
+const __exports = {};
+__def(__exports, { "renderEnd": () => renderEnd, "PART_LABELS": () => PART_LABELS });
+// Écrans de fin : victoire (bilan) et faillite (post-mortem).
+
+const { esc } = __m["src/ui/dom.js"];
+const { eur, pct } = __m["src/ui/format.js"];
+const { formatDate } = __m["src/engine/calendar.js"];
+const { computeScore } = __m["src/engine/score.js"];
+const { netWorth, passiveIncome } = __m["src/engine/selectors.js"];
+const { pixelTitle, mountPixelTitles } = __m["src/ui/pixelfont.js"];
+const { closeModal } = __m["src/ui/modal.js"];
+
+function renderEnd(app) {
+  const s = app.state;
+  if (s.status === 'bankrupt') return renderPostMortem(app);
+  if (s.status === 'won') return renderVictory(app);
+}
+
+function renderPostMortem(app) {
+  const s = app.state;
+  const pm = s.endgame.postmortem || { causes: [], outflows: [] };
+  const years = (s.time.day / 360).toFixed(1).replace('.', ',');
+  const m = app.openModal({
+    title: 'Faillite',
+    closable: false,
+    cls: 'modal-wide',
+    html: `${pixelTitle('POST-MORTEM', 'h2', 3, '#e43b44')}
+    <p><strong>${esc(s.meta.companyName)}</strong> a fait faillite le ${formatDate(s.time.day)}, après ${years} an(s) d'activité.</p>
+    ${pm.legal === 'independant' && pm.seized > 0 ? `<p class="bad">En tant qu'indépendant (responsabilité illimitée), ${eur(pm.seized, { decimals: false })} de ton épargne personnelle ont été saisis par les créanciers.</p>` : ''}
+    ${pm.legal === 'srl' ? '<p class="good">Ta SRL t’a protégé : ton patrimoine personnel n’est pas saisi.</p>' : ''}
+    <h3>Les causes principales</h3>
+    <ol class="causes">${pm.causes.map((c) => `<li><strong>${esc(c.title)}</strong> — ${esc(c.detail)}<br><span class="advice">💡 ${esc(c.advice)}</span></li>`).join('')}</ol>
+    <h3>Où est parti l'argent (4 derniers mois)</h3>
+    <table class="table"><tbody>${pm.outflows.map((o) => `<tr><td>${esc(o.label)}</td><td class="num">${eur(o.amount, { decimals: false })}</td><td class="num muted">${pct(o.pct)}</td></tr>`).join('')}</tbody></table>
+    <p>Score : <strong>${computeScore(s).total.toLocaleString('fr-BE')}</strong></p>
+    <div class="btns"><button class="btn btn-primary" data-e="new">Recommencer</button><button class="btn" data-e="same">Rejouer la même graine</button><button class="btn" data-e="menu">Menu principal</button></div>`,
+  });
+  mountPixelTitles(m);
+  bindEnd(app, m);
+}
+
+function renderVictory(app) {
+  const s = app.state;
+  const p = passiveIncome(s);
+  const sc = computeScore(s);
+  const years = (s.time.day / 360).toFixed(1).replace('.', ',');
+  const m = app.openModal({
+    title: 'Liberté financière !',
+    closable: false,
+    cls: 'modal-wide',
+    html: `${pixelTitle('LIBERTÉ FINANCIÈRE !', 'h2', 3, '#a7f070')}
+    <p>Félicitations ${esc(s.meta.founderName)} ! Après ${years} an(s), tes revenus passifs atteignent <strong>${eur(p.total, { decimals: false })}/mois</strong> (objectif ${eur(p.target, { decimals: false })}).</p>
+    <div class="stat-grid">
+      <div><span class="muted">Patrimoine net</span><strong>${eur(netWorth(s), { decimals: false })}</strong></div>
+      <div><span class="muted">CA cumulé</span><strong>${eur(s.finance.totals.revenue, { decimals: false })}</strong></div>
+      <div><span class="muted">Employés</span><strong>${s.staff.employees.length}</strong></div>
+      <div><span class="muted">Succès</span><strong>${Object.keys(s.achievements?.unlocked || {}).length}</strong></div>
+    </div>
+    <h3>D'où vient ton revenu passif</h3>
+    <ul>${Object.entries(p.parts).filter(([, v]) => v).map(([k, v]) => `<li>${esc(PART_LABELS[k] || k)} : ${eur(v, { decimals: false })}/mois</li>`).join('')}</ul>
+    <p>Score : <strong>${sc.total.toLocaleString('fr-BE')}</strong></p>
+    <div class="btns"><button class="btn btn-primary" data-e="sandbox">Continuer en bac à sable</button><button class="btn" data-e="new">Nouvelle partie</button><button class="btn" data-e="menu">Menu principal</button></div>`,
+  });
+  mountPixelTitles(m);
+  bindEnd(app, m);
+}
+
+const PART_LABELS = { epargne: 'Épargne', bourse: 'ETF et actions (règle des 4 %)', immobilier: 'Immobilier locatif', entreprise: 'Entreprise gérée sans toi' };
+
+function bindEnd(app, m) {
+  m.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-e]');
+    if (!b) return;
+    const c = b.dataset.e;
+    closeModal(true);
+    if (c === 'sandbox') {
+      app.dispatch({ type: 'continueSandbox' });
+      app.setSpeed(1);
+    } else if (c === 'new') app.showNewGame();
+    else if (c === 'same') {
+      const meta = app.state.meta;
+      app.startNewGame({ sector: meta.sector, legal: meta.legal, difficulty: meta.difficulty, companyName: meta.companyName, founderName: meta.founderName, seed: meta.seed, metier: meta.metier });
+    } else app.showTitle();
+  });
+}
+return __exports;
+})();
+
+// ---- src/ui/panels/investissements.js ----
+__m["src/ui/panels/investissements.js"] = (function () {
+const __exports = {};
+__def(__exports, { "panel": () => panel });
+// Onglet Investissements : revenu passif, épargne, bourse, immobilier.
+
+const { esc, help, actBtn, bar } = __m["src/ui/dom.js"];
+const { eur, pct } = __m["src/ui/format.js"];
+const { INVESTMENTS: I } = __m["src/data/investments.js"];
+const { savingsRate, tradeFees, propertyQuote, mortgageRate } = __m["src/engine/systems/investments.js"];
+const { passiveIncome } = __m["src/engine/selectors.js"];
+const { hasManager } = __m["src/engine/systems/staff.js"];
+const { drawLines } = __m["src/ui/charts.js"];
+const { PART_LABELS } = __m["src/ui/screens/end.js"];
+const { toast } = __m["src/ui/toast.js"];
+
+const form = { amount: 100_000, down: 0.2 };
+
+function amountField() {
+  return `<label class="field"><span>Montant (€)</span><input type="number" id="inv-amount" min="100" step="100" value="${form.amount / 100}"></label>`;
+}
+
+const panel = {
+  id: 'investissements',
+  label: 'Placements',
+  icon: '💹',
+  render(state) {
+    const inv = state.investments;
+    const p = passiveIncome(state);
+    const parts = Object.entries(p.parts);
+    const gainEtf = inv.etf.value - inv.etf.basis;
+    const gainSt = inv.stocks.value - inv.stocks.basis;
+    const manager = hasManager(state);
+    const props = inv.realEstate
+      .map((x) => {
+        const occupied = x.vacantUntil <= state.time.day;
+        return `<li class="row"><div class="grow"><strong>${esc(x.label)}</strong> ${occupied ? '<span class="tag good">loué</span>' : '<span class="tag warn">vide</span>'}<br>
+          <span class="small">Valeur ${eur(x.value, { decimals: false })} · loyer ${eur(x.rent, { decimals: false })}/mois · crédit restant ${eur(x.mortgage.remaining, { decimals: false })} (mensualité ${eur(x.mortgage.payment, { decimals: false })})</span></div>
+          <button type="button" class="btn btn-small" data-act='${esc(JSON.stringify({ type: 'sellProperty', id: x.id }))}' data-confirm="Vendre ce bien ? (frais d'agence 3 %)">Vendre</button></li>`;
+      })
+      .join('');
+    const catalog = I.realEstate.catalog
+      .map((c) => {
+        const q = propertyQuote(state, c, form.down);
+        const yieldGross = (c.rent * 12) / c.price;
+        const cashflow = c.rent - (c.price * (c.maintenance || I.realEstate.maintenancePct)) / 12 - c.rent / 12 - q.payment - c.rent * 0.08;
+        return `<li class="row"><div class="grow"><strong>${esc(c.label)}</strong> — ${eur(c.price, { decimals: false })}<br>
+          <span class="small">Loyer ${eur(c.rent, { decimals: false })}/mois · rendement brut ${pct(yieldGross, 1)} · à payer : ${eur(q.cash, { decimals: false })} (dont ${eur(q.fees, { decimals: false })} de droits et notaire) · crédit ${eur(q.loan, { decimals: false })} → ${eur(q.payment, { decimals: false })}/mois · cash-flow ≈ <span class="${cashflow >= 0 ? 'good' : 'bad'}">${eur(Math.round(cashflow), { decimals: false })}/mois</span></span></div>
+          ${actBtn('Acheter', { type: 'buyProperty', id: c.id, downPct: form.down }, { cls: 'btn-small', disabled: q.cash > state.personal.cash })}</li>`;
+      })
+      .join('');
+    return `
+    <section class="card-block">
+      <h3>Revenu passif ${help('Revenu passif')}</h3>
+      <p>Moyenne 3 mois : <strong class="${p.total >= p.target ? 'good' : ''}">${eur(p.total, { decimals: false })}/mois</strong> sur un objectif de ${eur(p.target, { decimals: false })}/mois.</p>
+      <p>${bar(Math.max(0, p.total), p.target)} ${pct(Math.max(0, p.total) / Math.max(1, p.target))}</p>
+      <table class="table"><tbody>${parts.map(([k, v]) => `<tr><td>${esc(PART_LABELS[k] || k)}</td><td class="num ${v < 0 ? 'bad' : ''}">${eur(v, { decimals: false })}/mois</td></tr>`).join('')}</tbody></table>
+      <p class="small muted">${state.staff.founder.active ? `Ton entreprise ne compte pas encore : il faut ${manager ? 'te retirer de l’opérationnel (onglet Équipe)' : 'recruter un·e gérant·e puis te retirer de l’opérationnel'} ${help('Gérant')}.` : 'Ton entreprise tourne sans toi : son bénéfice net compte comme revenu passif.'} La bourse compte pour 4 %/an de sa valeur ${help('Règle des 4 %')}.</p>
+      <canvas id="passive-chart" class="chart" width="560" height="150" aria-label="Évolution du revenu passif"></canvas>
+    </section>
+
+    <section class="card-block">
+      <h3>Ton compte personnel : ${eur(state.personal.cash, { decimals: false })}</h3>
+      ${amountField()}
+      <p class="small muted">Les placements se font avec ton argent personnel : sors d'abord l'argent de l'entreprise (prélèvement, rémunération ou dividendes, onglet Finances).</p>
+    </section>
+
+    <section class="card-block">
+      <h3>Épargne réglementée ${help('Intérêts composés')}</h3>
+      <p>Solde : <strong>${eur(inv.savings, { decimals: false })}</strong> · taux ${pct(savingsRate(state), 2)}/an · intérêts exonérés jusqu'à 1 020 €/an.</p>
+      <div class="btns"><button type="button" class="btn btn-small" data-ui="inv" data-arg="deposit">Déposer</button><button type="button" class="btn btn-small" data-ui="inv" data-arg="withdraw">Retirer</button></div>
+    </section>
+
+    <section class="card-block">
+      <h3>Bourse ${help('ETF')}</h3>
+      <table class="table"><thead><tr><th>Placement</th><th class="num">Valeur</th><th class="num">Plus-value</th><th></th></tr></thead><tbody>
+        <tr><td>${esc(I.etf.label)}<br><span class="small muted">≈ ${pct(I.etf.annualReturn)}/an en moyenne, volatilité ${pct(I.etf.annualVol)}</span></td><td class="num">${eur(inv.etf.value, { decimals: false })}</td><td class="num ${gainEtf < 0 ? 'bad' : 'good'}">${eur(gainEtf, { decimals: false })}</td>
+          <td><div class="btns"><button type="button" class="btn btn-small" data-ui="inv" data-arg="buy:etf">Acheter</button><button type="button" class="btn btn-small" data-ui="inv" data-arg="sell:etf">Vendre</button></div></td></tr>
+        <tr><td>${esc(I.stocks.label)}<br><span class="small muted">≈ ${pct(I.stocks.annualReturn)}/an, volatilité ${pct(I.stocks.annualVol)}, dividende ${pct(I.stocks.dividendYield, 1)}</span></td><td class="num">${eur(inv.stocks.value, { decimals: false })}</td><td class="num ${gainSt < 0 ? 'bad' : 'good'}">${eur(gainSt, { decimals: false })}</td>
+          <td><div class="btns"><button type="button" class="btn btn-small" data-ui="inv" data-arg="buy:stocks">Acheter</button><button type="button" class="btn btn-small" data-ui="inv" data-arg="sell:stocks">Vendre</button></div></td></tr>
+      </tbody></table>
+      <p class="small muted">Frais sur ${eur(form.amount, { decimals: false })} : ETF ${eur(tradeFees('etf', form.amount))} · actions ${eur(tradeFees('stocks', form.amount))} (TOB + courtage) ${help('TOB')}. Plus-values taxées à 10 % au-delà de 10 000 €/an ${help('Taxe sur les plus-values')}. Rendements simulés, pas des prévisions.</p>
+      <canvas id="market-chart" class="chart" width="560" height="140" aria-label="Indices boursiers"></canvas>
+    </section>
+
+    <section class="card-block">
+      <h3>Immobilier locatif ${help('Droits d’enregistrement')}</h3>
+      <label class="field"><span>Apport personnel (le reste en crédit hypothécaire à ${pct(mortgageRate(state), 2)} sur ${I.realEstate.mortgageYears} ans)</span>
+        <select id="inv-down">${[0.2, 0.4, 0.6, 1].map((d) => `<option value="${d}" ${d === form.down ? 'selected' : ''}>${pct(d)}${d === 1 ? ' (sans crédit)' : ''}</option>`).join('')}</select></label>
+      ${props ? `<h4>Tes biens</h4><ul class="list">${props}</ul>` : ''}
+      <h4>À vendre</h4>
+      <ul class="list">${catalog}</ul>
+      <p class="small muted">Frais à l'achat : droits d'enregistrement 12,5 % + notaire ≈ 2 %. Précompte immobilier ≈ 1 mois de loyer/an, entretien ≈ 1 %/an, vide locatif possible ${help('Précompte immobilier')}.</p>
+    </section>`;
+  },
+  mount(el, state) {
+    const a = el.querySelector('#inv-amount');
+    if (a) a.addEventListener('input', () => (form.amount = Math.max(0, Math.round(Number(a.value) * 100) || 0)));
+    const d = el.querySelector('#inv-down');
+    if (d) d.addEventListener('change', () => (form.down = Number(d.value)));
+    const pc = el.querySelector('#passive-chart');
+    if (pc) {
+      const h = state.passive.history.slice(-36);
+      drawLines(pc, { labels: h.map(() => ''), series: [{ name: 'Revenu passif', color: '#a7f070', values: h }, { name: 'Objectif', color: '#ffcd75', values: h.map(() => state.passiveTarget), dashed: true }] });
+    }
+    const mc = el.querySelector('#market-chart');
+    if (mc) {
+      const h = state.investments.history.slice(-36);
+      drawLines(mc, { labels: h.map(() => ''), series: [{ name: 'ETF', color: '#41a6f6', values: h.map((x) => x.etf) }, { name: 'Actions', color: '#ef7d57', values: h.map((x) => x.stocks) }, { name: 'Épargne', color: '#a7f070', values: h.map((x) => x.savings) }] });
+    }
+  },
+  ui(cmd, arg, app) {
+    if (cmd !== 'inv') return;
+    const input = document.getElementById('inv-amount');
+    const amount = input ? Math.round(Number(input.value) * 100) : form.amount;
+    if (!(amount > 0)) return toast('Montant invalide.', 'bad');
+    form.amount = amount;
+    const [op, kind] = arg.split(':');
+    if (op === 'deposit') app.dispatch({ type: 'deposit', amount });
+    if (op === 'withdraw') app.dispatch({ type: 'withdraw', amount });
+    if (op === 'buy') app.dispatch({ type: 'buyAsset', kind, amount });
+    if (op === 'sell') app.dispatch({ type: 'sellAsset', kind, amount });
+  },
+  live: false,
+};
+return __exports;
+})();
+
 // ---- src/ui/panels/evenements.js ----
 __m["src/ui/panels/evenements.js"] = (function () {
 const __exports = {};
@@ -9349,6 +10140,111 @@ const panel = {
 return __exports;
 })();
 
+// ---- src/ui/panels/stats.js ----
+__m["src/ui/panels/stats.js"] = (function () {
+const __exports = {};
+__def(__exports, { "panel": () => panel });
+// Onglet Stats : graphiques (trésorerie, CA et charges, marge, parts de marché, patrimoine).
+
+const { drawLines, drawBars, legend } = __m["src/ui/charts.js"];
+const { eur, pct, num } = __m["src/ui/format.js"];
+const { formatMonth } = __m["src/engine/calendar.js"];
+const { netWorth } = __m["src/engine/selectors.js"];
+const { computeScore } = __m["src/engine/score.js"];
+const { CATEGORIES } = __m["src/data/economy.js"];
+
+const COLORS = { cash: '#41a6f6', rev: '#a7f070', exp: '#ef7d57', profit: '#ffcd75', share: '#73eff7', nw: '#a7f070', passive: '#ffcd75', rep: '#e43b44' };
+
+const panel = {
+  id: 'stats',
+  label: 'Stats',
+  icon: '📊',
+  render(state) {
+    const sc = computeScore(state);
+    const h = state.finance.history;
+    const last12 = h.slice(-12);
+    const rev12 = last12.reduce((s, x) => s + x.revenue, 0);
+    const prof12 = last12.reduce((s, x) => s + x.profit, 0);
+    return `
+    <section class="card-block">
+      <h3>En un coup d'œil</h3>
+      <div class="stat-grid">
+        <div><span class="muted">Patrimoine net</span><strong>${eur(netWorth(state), { decimals: false })}</strong></div>
+        <div><span class="muted">CA 12 derniers mois</span><strong>${eur(rev12, { decimals: false })}</strong></div>
+        <div><span class="muted">Marge nette 12 mois</span><strong>${rev12 ? pct(prof12 / rev12) : '—'}</strong></div>
+        <div><span class="muted">CA cumulé</span><strong>${eur(state.finance.totals.revenue, { decimals: false })}</strong></div>
+        <div><span class="muted">Score</span><strong>${num(sc.total)}</strong></div>
+        <div><span class="muted">Ancienneté</span><strong>${num(state.time.day / 360, 1)} an(s)</strong></div>
+      </div>
+    </section>
+    <section class="card-block"><h3>Trésorerie (180 derniers jours)</h3><canvas id="ch-cash" class="chart" width="560" height="150"></canvas></section>
+    <section class="card-block"><h3>Chiffre d'affaires et charges (mensuels)</h3><canvas id="ch-rev" class="chart" width="560" height="160"></canvas>
+      ${legend([{ name: 'CA', color: COLORS.rev }, { name: 'Charges', color: COLORS.exp }, { name: 'Résultat', color: COLORS.profit }])}</section>
+    <section class="card-block"><h3>Marge nette (%)</h3><canvas id="ch-margin" class="chart" width="560" height="120"></canvas></section>
+    <section class="card-block"><h3>Part de marché et réputation</h3><canvas id="ch-share" class="chart" width="560" height="130"></canvas>
+      ${legend([{ name: 'Part de marché', color: COLORS.share }])}</section>
+    <section class="card-block"><h3>Patrimoine net et revenu passif</h3><canvas id="ch-nw" class="chart" width="560" height="150"></canvas>
+      ${legend([{ name: 'Patrimoine net', color: COLORS.nw }])}
+      <canvas id="ch-passive" class="chart" width="560" height="110"></canvas>${legend([{ name: 'Revenu passif mensuel', color: COLORS.passive }])}</section>
+    <section class="card-block"><h3>Où va l'argent (12 derniers mois)</h3><canvas id="ch-out" class="chart" width="560" height="200"></canvas></section>`;
+  },
+  mount(el, state) {
+    const h = state.finance.history.slice(-36);
+    const labels = h.map((x) => formatMonth(x.m));
+    const dc = state.finance.dailyCash;
+    drawLines(el.querySelector('#ch-cash'), { labels: dc.map(() => ''), series: [{ name: 'Trésorerie', color: COLORS.cash, values: dc }] });
+    drawLines(el.querySelector('#ch-rev'), {
+      labels,
+      series: [
+        { name: 'CA', color: COLORS.rev, values: h.map((x) => x.revenue) },
+        { name: 'Charges', color: COLORS.exp, values: h.map((x) => x.expenses) },
+        { name: 'Résultat', color: COLORS.profit, values: h.map((x) => x.profit), dashed: true },
+      ],
+    });
+    drawLines(el.querySelector('#ch-margin'), { labels, series: [{ name: 'Marge', color: COLORS.profit, values: h.map((x) => (x.revenue > 0 ? x.profit / x.revenue : NaN)) }] }, { format: 'pct' });
+    drawLines(el.querySelector('#ch-share'), { labels, series: [{ name: 'Part', color: COLORS.share, values: h.map((x) => x.share) }] }, { format: 'pct' });
+    drawLines(el.querySelector('#ch-nw'), { labels, series: [{ name: 'Patrimoine', color: COLORS.nw, values: h.map((x) => (x.netWorth == null ? NaN : x.netWorth)) }] });
+    drawLines(el.querySelector('#ch-passive'), { labels, series: [{ name: 'Passif', color: COLORS.passive, values: h.map((x) => (x.passive == null ? NaN : x.passive)) }] });
+    const outs = {};
+    for (const x of state.finance.history.slice(-12)) for (const [k, v] of Object.entries(x.byCat || {})) outs[k] = (outs[k] || 0) + v;
+    const top = Object.entries(outs).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const pal = ['#ef7d57', '#41a6f6', '#ffcd75', '#a7f070', '#b13e53', '#73eff7', '#94b0c2', '#5d275d'];
+    drawBars(el.querySelector('#ch-out'), top.map(([k, v], i) => ({ label: (CATEGORIES[k] || k).slice(0, 16), value: v, color: pal[i % pal.length] })));
+  },
+};
+return __exports;
+})();
+
+// ---- src/ui/panels/succes.js ----
+__m["src/ui/panels/succes.js"] = (function () {
+const __exports = {};
+__def(__exports, { "panel": () => panel });
+// Onglet Succès.
+
+const { esc } = __m["src/ui/dom.js"];
+const { ACHIEVEMENTS } = __m["src/data/achievements.js"];
+const { formatDate } = __m["src/engine/calendar.js"];
+
+const panel = {
+  id: 'succes',
+  label: 'Succès',
+  icon: '🏅',
+  render(state) {
+    const list = ACHIEVEMENTS.filter((a) => !a.sector || a.sector === state.meta.sector);
+    const u = state.achievements.unlocked;
+    const n = list.filter((a) => u[a.id] != null).length;
+    return `<section class="card-block"><h3>Succès : ${n} / ${list.length}</h3>
+      <ul class="ach-grid">${list
+        .map((a) => {
+          const ok = u[a.id] != null;
+          return `<li class="ach ${ok ? 'ok' : 'locked'}"><span class="ach-icon" aria-hidden="true">${ok ? a.icon : '🔒'}</span><span><strong>${esc(a.label)}</strong><br><span class="small">${esc(a.desc)}</span>${ok ? `<br><span class="small muted">Débloqué le ${formatDate(u[a.id])}</span>` : ''}</span></li>`;
+        })
+        .join('')}</ul></section>`;
+  },
+};
+return __exports;
+})();
+
 // ---- src/ui/panels/index.js ----
 __m["src/ui/panels/index.js"] = (function () {
 const __exports = {};
@@ -9359,9 +10255,12 @@ const { panel: entreprise } = __m["src/ui/panels/entreprise.js"];
 const { panel: finances } = __m["src/ui/panels/finances.js"];
 const { panel: equipe } = __m["src/ui/panels/equipe.js"];
 const { panel: marche } = __m["src/ui/panels/marche.js"];
+const { panel: investissements } = __m["src/ui/panels/investissements.js"];
 const { panel: evenements } = __m["src/ui/panels/evenements.js"];
+const { panel: stats } = __m["src/ui/panels/stats.js"];
+const { panel: succes } = __m["src/ui/panels/succes.js"];
 
-const PANELS = [entreprise, finances, equipe, marche, evenements];
+const PANELS = [entreprise, finances, equipe, marche, investissements, evenements, stats, succes];
 return __exports;
 })();
 
@@ -10002,135 +10901,6 @@ function renderSide(s) {
       .join('')}</ul>
     <p class="muted small">Chaque facteur multiplie la demande. Survole un facteur pour l'explication.</p>
   </details>`;
-}
-return __exports;
-})();
-
-// ---- src/engine/score.js ----
-__m["src/engine/score.js"] = (function () {
-const __exports = {};
-__def(__exports, { "SCORE_VERSION": () => SCORE_VERSION, "computeScore": () => computeScore });
-// =============================================================================
-//  computeScore(state) — fonction PURE (aucun effet de bord), base du futur
-//  classement (V2). Toute modification doit rester rétro-compatible ou
-//  incrémenter SCORE_VERSION.
-//
-//  score = arrondi((base + passif + victoire + succès) × multDifficulté × multFaillite)
-//    base      = patrimoine net en € / 100          (1 point par 100 € de patrimoine)
-//    passif    = revenu passif mensuel net en € × 2
-//    victoire  = 5 000 + 25 × max(0, 240 − mois nécessaires pour gagner)  (si gagné)
-//    succès    = 50 × nombre de succès débloqués
-//    multDifficulté : Facile 0,8 · Normal 1 · Réaliste 1,25 · Difficile 1,5
-//    multFaillite   : 0,25 si faillite, sinon 1
-//  Le score ne descend jamais sous 0.
-// =============================================================================
-
-const { DIFFICULTIES } = __m["src/data/difficulty.js"];
-const { netWorth, passiveIncome } = __m["src/engine/selectors.js"];
-
-const SCORE_VERSION = 1;
-
-function computeScore(state) {
-  const nw = netWorth(state);
-  const base = nw / 10_000; // centimes → € / 100
-  const passive = (passiveIncome(state).total / 100) * 2;
-  const wonDay = state.endgame && state.endgame.wonDay;
-  const victory = wonDay != null ? 5000 + 25 * Math.max(0, 240 - Math.floor(wonDay / 30)) : 0;
-  const achievements = 50 * Object.keys((state.achievements && state.achievements.unlocked) || {}).length;
-  const diffMult = (DIFFICULTIES[state.meta.difficulty] || DIFFICULTIES.normal).scoreMult;
-  const bankruptMult = state.status === 'bankrupt' ? 0.25 : 1;
-  const total = Math.max(0, Math.round((base + passive + victory + achievements) * diffMult * bankruptMult));
-  return { total, version: SCORE_VERSION, parts: { base: Math.round(base), passive: Math.round(passive), victory, achievements, diffMult, bankruptMult } };
-}
-return __exports;
-})();
-
-// ---- src/ui/screens/end.js ----
-__m["src/ui/screens/end.js"] = (function () {
-const __exports = {};
-__def(__exports, { "renderEnd": () => renderEnd, "PART_LABELS": () => PART_LABELS });
-// Écrans de fin : victoire (bilan) et faillite (post-mortem).
-
-const { esc } = __m["src/ui/dom.js"];
-const { eur, pct } = __m["src/ui/format.js"];
-const { formatDate } = __m["src/engine/calendar.js"];
-const { computeScore } = __m["src/engine/score.js"];
-const { netWorth, passiveIncome } = __m["src/engine/selectors.js"];
-const { pixelTitle, mountPixelTitles } = __m["src/ui/pixelfont.js"];
-const { closeModal } = __m["src/ui/modal.js"];
-
-function renderEnd(app) {
-  const s = app.state;
-  if (s.status === 'bankrupt') return renderPostMortem(app);
-  if (s.status === 'won') return renderVictory(app);
-}
-
-function renderPostMortem(app) {
-  const s = app.state;
-  const pm = s.endgame.postmortem || { causes: [], outflows: [] };
-  const years = (s.time.day / 360).toFixed(1).replace('.', ',');
-  const m = app.openModal({
-    title: 'Faillite',
-    closable: false,
-    cls: 'modal-wide',
-    html: `${pixelTitle('POST-MORTEM', 'h2', 3, '#e43b44')}
-    <p><strong>${esc(s.meta.companyName)}</strong> a fait faillite le ${formatDate(s.time.day)}, après ${years} an(s) d'activité.</p>
-    ${pm.legal === 'independant' && pm.seized > 0 ? `<p class="bad">En tant qu'indépendant (responsabilité illimitée), ${eur(pm.seized, { decimals: false })} de ton épargne personnelle ont été saisis par les créanciers.</p>` : ''}
-    ${pm.legal === 'srl' ? '<p class="good">Ta SRL t’a protégé : ton patrimoine personnel n’est pas saisi.</p>' : ''}
-    <h3>Les causes principales</h3>
-    <ol class="causes">${pm.causes.map((c) => `<li><strong>${esc(c.title)}</strong> — ${esc(c.detail)}<br><span class="advice">💡 ${esc(c.advice)}</span></li>`).join('')}</ol>
-    <h3>Où est parti l'argent (4 derniers mois)</h3>
-    <table class="table"><tbody>${pm.outflows.map((o) => `<tr><td>${esc(o.label)}</td><td class="num">${eur(o.amount, { decimals: false })}</td><td class="num muted">${pct(o.pct)}</td></tr>`).join('')}</tbody></table>
-    <p>Score : <strong>${computeScore(s).total.toLocaleString('fr-BE')}</strong></p>
-    <div class="btns"><button class="btn btn-primary" data-e="new">Recommencer</button><button class="btn" data-e="same">Rejouer la même graine</button><button class="btn" data-e="menu">Menu principal</button></div>`,
-  });
-  mountPixelTitles(m);
-  bindEnd(app, m);
-}
-
-function renderVictory(app) {
-  const s = app.state;
-  const p = passiveIncome(s);
-  const sc = computeScore(s);
-  const years = (s.time.day / 360).toFixed(1).replace('.', ',');
-  const m = app.openModal({
-    title: 'Liberté financière !',
-    closable: false,
-    cls: 'modal-wide',
-    html: `${pixelTitle('LIBERTÉ FINANCIÈRE !', 'h2', 3, '#a7f070')}
-    <p>Félicitations ${esc(s.meta.founderName)} ! Après ${years} an(s), tes revenus passifs atteignent <strong>${eur(p.total, { decimals: false })}/mois</strong> (objectif ${eur(p.target, { decimals: false })}).</p>
-    <div class="stat-grid">
-      <div><span class="muted">Patrimoine net</span><strong>${eur(netWorth(s), { decimals: false })}</strong></div>
-      <div><span class="muted">CA cumulé</span><strong>${eur(s.finance.totals.revenue, { decimals: false })}</strong></div>
-      <div><span class="muted">Employés</span><strong>${s.staff.employees.length}</strong></div>
-      <div><span class="muted">Succès</span><strong>${Object.keys(s.achievements?.unlocked || {}).length}</strong></div>
-    </div>
-    <h3>D'où vient ton revenu passif</h3>
-    <ul>${Object.entries(p.parts).filter(([, v]) => v).map(([k, v]) => `<li>${esc(PART_LABELS[k] || k)} : ${eur(v, { decimals: false })}/mois</li>`).join('')}</ul>
-    <p>Score : <strong>${sc.total.toLocaleString('fr-BE')}</strong></p>
-    <div class="btns"><button class="btn btn-primary" data-e="sandbox">Continuer en bac à sable</button><button class="btn" data-e="new">Nouvelle partie</button><button class="btn" data-e="menu">Menu principal</button></div>`,
-  });
-  mountPixelTitles(m);
-  bindEnd(app, m);
-}
-
-const PART_LABELS = { epargne: 'Épargne', bourse: 'ETF et actions (règle des 4 %)', immobilier: 'Immobilier locatif', entreprise: 'Entreprise gérée sans toi' };
-
-function bindEnd(app, m) {
-  m.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-e]');
-    if (!b) return;
-    const c = b.dataset.e;
-    closeModal(true);
-    if (c === 'sandbox') {
-      app.dispatch({ type: 'continueSandbox' });
-      app.setSpeed(1);
-    } else if (c === 'new') app.showNewGame();
-    else if (c === 'same') {
-      const meta = app.state.meta;
-      app.startNewGame({ sector: meta.sector, legal: meta.legal, difficulty: meta.difficulty, companyName: meta.companyName, founderName: meta.founderName, seed: meta.seed, metier: meta.metier });
-    } else app.showTitle();
-  });
 }
 return __exports;
 })();

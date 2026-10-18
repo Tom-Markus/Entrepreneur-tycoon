@@ -7,3 +7,4 @@ export { createRng, hashSeed } from './rng.js';
 export { migrate } from './migrations.js';
 export * as calendar from './calendar.js';
 export * as money from './money.js';
+export { computeScore } from './score.js';

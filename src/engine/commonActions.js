@@ -8,6 +8,8 @@ import * as staff from './systems/staff.js';
 import { personalOut, personalIn, receive, pay } from './ledger.js';
 import * as loans from './systems/loans.js';
 import { decide } from './events.js';
+import * as inv from './systems/investments.js';
+import { checkAchievements } from './systems/achievements.js';
 import { dividendRate } from './taxmath.js';
 import { dateOf } from './calendar.js';
 import { clamp } from './money.js';
@@ -76,6 +78,34 @@ registerActions({
   },
   decide(state, a, rng) {
     return decide(state, a.uid, a.choice, rng);
+  },
+  deposit(state, a) {
+    return inv.deposit(state, Number(a.amount));
+  },
+  withdraw(state, a) {
+    return inv.withdraw(state, Number(a.amount));
+  },
+  buyAsset(state, a) {
+    const r = inv.buy(state, a.kind, Number(a.amount));
+    if (r.ok) checkAchievements(state);
+    return r;
+  },
+  sellAsset(state, a) {
+    return inv.sell(state, a.kind, Number(a.amount));
+  },
+  buyProperty(state, a) {
+    const r = inv.buyProperty(state, a.id, Number(a.downPct ?? 0.2));
+    if (r.ok) checkAchievements(state);
+    return r;
+  },
+  sellProperty(state, a) {
+    return inv.sellProperty(state, a.id);
+  },
+  continueSandbox(state) {
+    if (state.status !== 'won') return { ok: false, message: 'Disponible après la victoire.' };
+    state.status = 'sandbox';
+    log(state, 'info', 'Mode bac à sable : la partie continue sans fin. Les succès restent à débloquer !');
+    return { ok: true };
   },
   requestLoan(state, a) {
     return loans.requestLoan(state, Number(a.amount), Number(a.months));
