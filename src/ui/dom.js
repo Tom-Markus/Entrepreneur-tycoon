@@ -42,8 +42,8 @@ export function eurInput(id, cents, action, { min = 0, max = 1e9, step = 1, labe
 }
 
 /** Curseur relié à une action (valeur brute ou multipliée par scale). */
-export function rangeInput(id, value, action, { min = 0, max = 100, step = 1, scale = 1, label = '', display = '' } = {}) {
-  return `<label class="field range"><span>${label} <output for="${esc(id)}">${display}</output></span><input type="range" id="${esc(id)}" min="${min}" max="${max}" step="${step}" value="${value / scale}" data-input='${esc(JSON.stringify(action))}' data-scale="${scale}"></label>`;
+export function rangeInput(id, value, action, { min = 0, max = 100, step = 1, scale = 1, label = '', display = '', fmt = '' } = {}) {
+  return `<label class="field range"><span>${label} <output for="${esc(id)}">${display}</output></span><input type="range" id="${esc(id)}" min="${min}" max="${max}" step="${step}" value="${value / scale}" data-input='${esc(JSON.stringify(action))}' data-scale="${scale}" data-fmt="${esc(fmt)}"></label>`;
 }
 
 export function selectInput(id, value, options, action, { label = '' } = {}) {

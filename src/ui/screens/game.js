@@ -113,7 +113,8 @@ export class GameScreen {
     if (el.type === 'range') {
       const out = el.closest('label')?.querySelector('output');
       const fmt = el.dataset.fmt;
-      if (out) out.textContent = fmt === 'eur' ? eur(Number(el.value) * Number(el.dataset.scale || 1), { decimals: false }) : fmt === 'pct' ? `${el.value} %` : el.value;
+      const v = Number(el.value);
+      if (out) out.textContent = fmt === 'eur' ? eur(v * Number(el.dataset.scale || 1), { decimals: false }) : fmt === 'pct' ? `${v} %` : fmt === 'days100' ? `${(v / 100).toFixed(1).replace('.', ',')} j` : el.value;
     }
   }
 
@@ -126,8 +127,8 @@ export class GameScreen {
     } catch {
       return;
     }
-    const value = el.dataset.raw ? el.value : Math.round(Number(String(el.value).replace(',', '.')) * Number(el.dataset.scale || 1));
-    if (!el.dataset.raw && !Number.isFinite(value)) {
+    const value = el.dataset.checkbox ? el.checked : el.dataset.raw ? el.value : Math.round(Number(String(el.value).replace(',', '.')) * Number(el.dataset.scale || 1));
+    if (!el.dataset.raw && !el.dataset.checkbox && !Number.isFinite(value)) {
       toast('Valeur invalide.', 'bad');
       return;
     }
@@ -322,6 +323,7 @@ function renderSide(s) {
     stock: 'Goulet : ruptures de stock — commande plus.',
     personnel: 'Goulet : pas assez de personnel en service.',
     places: 'Goulet : plus de places disponibles dans tes locaux.',
+    ferme: 'Établissement fermé (sanction ou incident).',
   }[s.company.bottleneck];
   return `
   <div class="kpis">${k.map((x) => `<div class="kpi"><span class="kpi-label">${esc(x.label)}</span><span class="kpi-value">${byFmt(x.value, x.fmt, x.suffix || '')}</span></div>`).join('')}</div>

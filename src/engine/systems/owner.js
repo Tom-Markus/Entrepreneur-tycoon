@@ -33,7 +33,7 @@ export function transferToOwner(state, amount, reason = 'draw') {
 export function monthEnd(state) {
   const p = state.personal;
   // 1) Prélèvement / rémunération du mois (dans la limite de ce qui est disponible).
-  const available = Math.max(0, state.cash + state.finance.overdraftLimit * 0.5);
+  const available = Math.max(0, Math.floor(state.cash + state.finance.overdraftLimit * 0.5));
   const draw = Math.min(p.draw, available);
   transferToOwner(state, draw);
   if (draw < p.draw) log(state, 'bad', 'Trésorerie trop juste : ta rémunération du mois a été réduite.');

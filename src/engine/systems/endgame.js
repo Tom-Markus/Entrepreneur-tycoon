@@ -45,6 +45,7 @@ export function daily(state) {
 export function goBankrupt(state) {
   state.status = 'bankrupt';
   state.endgame.bankruptDay = state.time.day;
+  if (state.events) state.events.pending = []; // plus aucune décision possible
   if (state.meta.legal === 'independant') {
     // Les créanciers saisissent le patrimoine personnel (simplifié).
     state.endgame.seized = Math.max(0, state.personal.cash);

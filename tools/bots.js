@@ -39,7 +39,8 @@ function avgProfit(state, n = 3) {
 
 /** Résout un événement à choix : la plupart des bots prennent le choix « raisonnable ». */
 export function decide(state, strategy, rng) {
-  while (state.events && state.events.pending.length) {
+  let guard = 0;
+  while (state.events && state.events.pending.length && state.status !== 'bankrupt' && guard++ < 20) {
     const ev = state.events.pending[0];
     let choice = 0;
     if (strategy !== 'passive' && ev.botChoice != null) choice = ev.botChoice;
@@ -61,7 +62,8 @@ export function monthly(state, strategy, adapter) {
 
   // 2) Marketing proportionnel au CA
   const rev = state.finance.history.length ? state.finance.history[state.finance.history.length - 1].revenue : 0;
-  act(state, { type: 'setMarketing', value: Math.round(Math.max(15_000, rev * P.marketingShare) / 100) * 100 });
+  const mkt = adapter && adapter.marketing ? adapter.marketing(state, P) : Math.max(15_000, rev * P.marketingShare);
+  act(state, { type: 'setMarketing', value: Math.round(mkt / 100) * 100 });
 
   // 3) Recrutement
   if (adapter && adapter.wantsHire) {

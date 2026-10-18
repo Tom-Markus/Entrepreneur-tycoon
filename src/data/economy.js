@@ -67,6 +67,7 @@ export const CATEGORIES = {
   licenciement: 'Indemnités de licenciement',
   deplacements: 'Déplacements',
   creances: 'Créances irrécouvrables',
+  retours: 'Remboursements (retours)',
   investissement: 'Investissements (amortis)',
   autres: 'Autres charges',
   // flux non déductibles

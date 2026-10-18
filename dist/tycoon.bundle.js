@@ -280,6 +280,7 @@ const CATEGORIES = {
   licenciement: 'Indemnités de licenciement',
   deplacements: 'Déplacements',
   creances: 'Créances irrécouvrables',
+  retours: 'Remboursements (retours)',
   investissement: 'Investissements (amortis)',
   autres: 'Autres charges',
   // flux non déductibles
@@ -907,6 +908,409 @@ const AGENCE = {
 return __exports;
 })();
 
+// ---- src/data/sectors/restaurant.js ----
+__m["src/data/sectors/restaurant.js"] = (function () {
+const __exports = {};
+__def(__exports, { "RESTAURANT": () => RESTAURANT });
+// Secteur 2 — Friterie / snack. Montants en centimes.
+//
+// Mécanique : du PÉRISSABLE et de l'affluence. Les clients dépendent du jour,
+// de la météo, de la saison et de l'emplacement ; le stock (portions) se
+// périme en 4 jours ; la capacité dépend du personnel en service ; l'hygiène
+// est contrôlée par l'AFSCA.
+
+const RESTAURANT = {
+  id: 'restaurant',
+  label: 'Friterie / snack',
+  icon: 'fries',
+  tagline: 'Frites, fricadelles et sauce andalouse.',
+  description:
+    'Tu gères un commerce de bouche : achète tes portions chaque jour (elles se périment en 4 jours), adapte-toi à la météo et au week-end, évite les files d’attente avec assez de personnel, et garde une cuisine impeccable pour l’AFSCA.',
+  b2c: true,
+  // TVA : nourriture 12 %, boissons 21 % (25 % du ticket) → taux moyen (voir fiscalite.js)
+  drinksShare: 0.25,
+  purchaseVat: 0.06, // achats de denrées alimentaires
+  startCostExtra: 600_000, // friteuses, frigo, comptoir
+  homeSeats: 4, // personnes qui tiennent derrière le comptoir au départ
+  staffSeatKey: 'staffSeats',
+
+  refPrice: 1_150, // ticket moyen de référence TTC : 11,50 €
+  minPrice: 500,
+  maxPrice: 3_000,
+  elasticity: 1.6,
+  marketingRef: 40_000,
+
+  marketClients: 260, // clients potentiels par jour dans le quartier (tous acteurs confondus)
+  weekday: [0, 0.8, 0.95, 0.95, 1.35, 1.45, 1.0], // fermé le lundi (jour de repos classique)
+  seasonality: [0.9, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.1, 1, 0.95, 0.95, 1.05],
+  weather: { soleil: 1.1, nuageux: 1, pluie: 0.85, froid: 1.05, canicule: 0.85 },
+
+  ingredients: [
+    { level: 1, label: 'Standard (surgelé)', cost: 260, quality: 0.88 },
+    { level: 2, label: 'Bonne (patates fraîches, sauces maison)', cost: 330, quality: 1.04 },
+    { level: 3, label: 'Premium (Bintje locale, bœuf belge)', cost: 430, quality: 1.2 },
+  ],
+  shelfLife: 4, // jours
+  founderKitchen: 45, // portions/jour que le fondateur prépare
+  founderCounter: 45, // clients/jour qu'il sert
+  wasteCostPerPortion: 0,
+  energyBase: 45_000, // friteuses : énergie mensuelle de base
+  deliveryCommission: 0.3,
+
+  roles: {
+    cuisinier: { id: 'cuisinier', label: 'Cuisinier·ère', baseSalary: 260_000, skillRange: [25, 85], kitchen: 85, quality: 0.04,
+      desc: 'Prépare ≈ 85 portions/jour et améliore la qualité.' },
+    vendeur: { id: 'vendeur', label: 'Vendeur·se au comptoir', baseSalary: 235_000, skillRange: [20, 80], counter: 80,
+      desc: 'Sert ≈ 80 clients/jour : moins de files d’attente.' },
+    plongeur: { id: 'plongeur', label: 'Commis / plongeur', baseSalary: 220_000, skillRange: [15, 60], hygiene: 0.6, kitchen: 25,
+      desc: 'Nettoyage et aide en cuisine : l’hygiène remonte plus vite.' },
+  },
+
+  fixedCosts: [
+    { id: 'loyer', label: 'Loyer (rue secondaire)', amount: 110_000, vat: 0, cat: 'loyer' },
+    { id: 'assurance', label: 'Assurances (RC, incendie)', amount: 9_000, vat: 0, cat: 'assurances' },
+    { id: 'caisse', label: 'Caisse enregistreuse & terminal', amount: 4_500, vat: 0.21, cat: 'logiciels' },
+    { id: 'divers', label: 'Emballages, sauces, divers', amount: 18_000, perHead: 2_000, vat: 0.21, cat: 'materiel' },
+  ],
+
+  upgrades: [
+    { id: 'salle', cat: 'locaux', label: 'Petite salle (12 places)', cost: 600_000, rent: 25_000, effects: { attraction: 0.06, counter: 20, staffSeats: 2 },
+      desc: 'Les clients peuvent s’asseoir : +6 % d’attractivité.' },
+    { id: 'terrasse', cat: 'locaux', label: 'Terrasse', cost: 350_000, rent: 8_000, effects: { sunBonus: 0.15 },
+      desc: '+15 % de clients les jours de soleil (taxe communale de terrasse incluse).' },
+    { id: 'place', cat: 'locaux', label: 'Déménager sur la place du marché', cost: 2_500_000, rent: 140_000, requires: ['salle'], effects: { marketMult: 1.5, staffSeats: 3 },
+      desc: 'Emplacement n°1 : +50 % de clients potentiels. Loyer +1 400 €/mois.' },
+    { id: 'second', cat: 'locaux', label: 'Ouvrir un 2e établissement', cost: 6_000_000, rent: 160_000, requires: ['place'], minRep: 60, effects: { marketMult: 1.75, kitchen: 60, counter: 60, staffSeats: 6 },
+      desc: 'Un autre quartier : +75 % de marché. Il faudra du personnel en plus.' },
+    { id: 'friteuse', cat: 'materiel', label: 'Friteuses professionnelles', cost: 450_000, effects: { kitchenMult: 1.35, quality: 0.04 },
+      desc: '+35 % de capacité de cuisine, frites plus croustillantes.' },
+    { id: 'chambre_froide', cat: 'materiel', label: 'Chambre froide', cost: 550_000, effects: { shelfLife: 2 },
+      desc: 'Les portions se conservent 2 jours de plus : moins de gaspillage.' },
+    { id: 'cuisine_inox', cat: 'materiel', label: 'Cuisine inox aux normes', cost: 900_000, effects: { hygieneRegen: 0.8, quality: 0.03 },
+      desc: 'Hygiène bien plus facile à maintenir (AFSCA).' },
+    { id: 'double_cuisson', cat: 'process', label: 'Double cuisson à la belge', cost: 80_000, effects: { quality: 0.07 },
+      desc: 'Le secret des vraies frites belges : qualité +7 %.' },
+    { id: 'haccp', cat: 'process', label: 'Plan HACCP et formation hygiène', cost: 120_000, effects: { hygieneRegen: 0.5, afscaBonus: 10 },
+      desc: 'Procédures d’hygiène : contrôles AFSCA bien plus sereins.' },
+    { id: 'prevision', cat: 'process', label: 'Logiciel de prévision des stocks', cost: 200_000, monthly: 3_000, effects: { forecast: 1 },
+      desc: 'Commande selon la météo et le jour : moins de ruptures et de gaspillage.' },
+    { id: 'enseigne', cat: 'marque', label: 'Enseigne lumineuse et déco rétro', cost: 250_000, effects: { attraction: 0.08, repTarget: 3 },
+      desc: 'On te remarque de loin : +8 % d’attractivité.' },
+    { id: 'sauce_maison', cat: 'marque', label: 'Sauce maison signature', cost: 150_000, requires: ['double_cuisson'], effects: { repTarget: 6, quality: 0.04 },
+      desc: 'Les clients viennent de loin pour ta sauce.' },
+    { id: 'caisse_auto', cat: 'automatisation', label: 'Bornes de commande', cost: 1_200_000, monthly: 6_000, requires: ['salle'], effects: { counterMult: 1.5 },
+      desc: '+50 % de capacité au comptoir sans personnel en plus.' },
+    { id: 'click_collect', cat: 'automatisation', label: 'Click & collect', cost: 300_000, monthly: 2_500, effects: { rainProtect: 0.6, attraction: 0.04 },
+      desc: 'Commande en ligne : la pluie fait moins fuir les clients.' },
+  ],
+};
+return __exports;
+})();
+
+// ---- src/data/sectors/ecommerce.js ----
+__m["src/data/sectors/ecommerce.js"] = (function () {
+const __exports = {};
+__def(__exports, { "ECOMMERCE": () => ECOMMERCE });
+// Secteur 3 — E-commerce. Montants en centimes.
+//
+// Mécanique : on ACHÈTE du trafic (publicité) et du stock à l'avance.
+// Marge = prix − coût d'achat − logistique − frais de paiement − retours ;
+// rentable seulement si le coût d'acquisition client reste sous la marge.
+
+const ECOMMERCE = {
+  id: 'ecommerce',
+  label: 'E-commerce',
+  icon: 'box',
+  tagline: 'Une boutique en ligne qui livre toute la Belgique.',
+  description:
+    'Tu achètes ton stock à l’avance (livré en ≈ 12 jours), tu paies la publicité au clic et tu vis de ta marge. Surveille le coût d’acquisition client, les ruptures, les retours et les pics du Black Friday et des fêtes.',
+  b2c: true,
+  vatRate: 0.21,
+  startCostExtra: 250_000, // site, photos, premier matériel d'emballage
+  homeSeats: 2,
+
+  elasticity: 2.0,
+  marketingRef: 100_000, // budget pub mensuel de référence
+  organicVisitors: 650, // visiteurs organiques/jour sur le marché (partagés)
+  baseConversion: 0.024,
+  cpc: 45, // coût par clic de base : 0,45 €
+  cpcSeason: [0.9, 0.85, 0.9, 0.95, 1, 1, 0.95, 0.95, 1, 1.05, 1.45, 1.3],
+  seasonality: [1.1, 0.8, 0.9, 0.95, 1, 0.95, 0.9, 0.9, 1, 1.05, 1.5, 1.6],
+  blackFriday: { month: 10, from: 23, to: 28, mult: 2.4 },
+  packing: 80, // emballage par commande
+  paymentPct: 0.014,
+  paymentFixed: 25,
+  returnDelay: 12,
+  returnResellable: 0.7,
+  leadTime: 12, // délai fournisseur (jours)
+  storageMonthlyPct: 0.02, // coût de stockage mensuel (% de la valeur du stock)
+  founderOrders: 45, // commandes préparées/jour par le fondateur
+  startSlots: 2,
+
+  products: [
+    { id: 'gourde', label: 'Gourde isotherme', cost: 700, ref: 2_490, weight: 1.2, returns: 0.04, ship: 420, vat: 0.21 },
+    { id: 'yoga', label: 'Tapis de yoga', cost: 900, ref: 2_990, weight: 1, returns: 0.05, ship: 520, vat: 0.21 },
+    { id: 'lampe', label: 'Lampe déco LED', cost: 1_100, ref: 3_490, weight: 1, returns: 0.06, ship: 480, vat: 0.21 },
+    { id: 'chocolat', label: 'Coffret de pralines belges', cost: 800, ref: 2_490, weight: 1.1, returns: 0.01, ship: 450, vat: 0.06, season: { 11: 2.5, 1: 1.6, 3: 1.4 } },
+    { id: 'bijou', label: 'Bracelet artisanal', cost: 600, ref: 2_990, weight: 0.8, returns: 0.07, ship: 300, vat: 0.21 },
+    { id: 'jeu', label: 'Jeu de société', cost: 1_400, ref: 3_990, weight: 0.9, returns: 0.03, ship: 550, vat: 0.21, season: { 11: 2, 10: 1.3 } },
+    { id: 'casque', label: 'Casque audio Bluetooth', cost: 1_800, ref: 5_990, weight: 0.9, returns: 0.09, ship: 520, vat: 0.21 },
+    { id: 'sac', label: 'Sac à dos urbain', cost: 1_600, ref: 5_490, weight: 0.8, returns: 0.08, ship: 600, vat: 0.21, season: { 7: 1.6, 8: 1.4 } },
+  ],
+
+  roles: {
+    logisticien: { id: 'logisticien', label: 'Logisticien·ne', baseSalary: 240_000, skillRange: [20, 80], orders: 70,
+      desc: 'Prépare ≈ 70 commandes/jour.' },
+    marketeur: { id: 'marketeur', label: 'Marketeur·se digital', baseSalary: 340_000, skillRange: [30, 90], cpcCut: 0.1, conv: 0.06,
+      desc: 'Optimise les campagnes : coût par clic −10 %, conversion +6 % (max 2 comptent).' },
+    service_client: { id: 'service_client', label: 'Service client', baseSalary: 245_000, skillRange: [20, 80], returnsCut: 0.2, sat: 6,
+      desc: 'Moins de retours (−20 %) et des clients plus satisfaits.' },
+  },
+
+  fixedCosts: [
+    { id: 'shop', label: 'Plateforme e-commerce', amount: 7_900, vat: 0.21, cat: 'logiciels' },
+    { id: 'assurance', label: 'Assurance RC', amount: 3_500, vat: 0, cat: 'assurances' },
+    { id: 'telecom', label: 'Internet & outils', amount: 5_000, perHead: 1_500, vat: 0.21, cat: 'logiciels' },
+  ],
+
+  upgrades: [
+    { id: 'garage', cat: 'locaux', label: 'Garage de stockage', cost: 100_000, rent: 25_000, effects: { seats: 2, storageCut: 0.3 },
+      desc: 'Plus de place pour le stock et 2 postes de travail.' },
+    { id: 'entrepot', cat: 'locaux', label: 'Petit entrepôt', cost: 900_000, rent: 120_000, requires: ['garage'], effects: { seats: 6, ordersMult: 1.25, storageCut: 0.3 },
+      desc: 'Préparation plus rapide (+25 %) et 6 postes de plus.' },
+    { id: 'logistique_3pl', cat: 'locaux', label: 'Logisticien externe (3PL)', cost: 1_500_000, monthly: 40_000, requires: ['entrepot'], effects: { ordersAdd: 300, shipCut: 0.15, seats: 4 },
+      desc: 'Un prestataire prépare 300 commandes/jour et négocie les transporteurs (−15 %).' },
+    { id: 'imprimante', cat: 'materiel', label: 'Imprimante d’étiquettes & scanner', cost: 60_000, effects: { ordersMult: 1.15 },
+      desc: '+15 % de commandes préparées par jour.' },
+    { id: 'photo', cat: 'materiel', label: 'Studio photo produits', cost: 250_000, effects: { conv: 0.12 },
+      desc: 'De belles photos : conversion +12 %.' },
+    { id: 'slots1', cat: 'process', label: 'Élargir le catalogue (+2 produits)', cost: 200_000, effects: { slots: 2 },
+      desc: 'Référencer 2 produits de plus.' },
+    { id: 'slots2', cat: 'process', label: 'Catalogue complet (+4 produits)', cost: 600_000, requires: ['slots1'], effects: { slots: 4 },
+      desc: 'Référencer tout le catalogue.' },
+    { id: 'transporteurs', cat: 'process', label: 'Contrat transporteur négocié', cost: 150_000, effects: { shipCut: 0.15 },
+      desc: '−15 % sur les frais d’expédition.' },
+    { id: 'retours', cat: 'process', label: 'Guide des tailles & FAQ', cost: 80_000, effects: { returnsMult: 0.75 },
+      desc: '−25 % de retours.' },
+    { id: 'seo', cat: 'marque', label: 'Référencement naturel (SEO)', cost: 300_000, effects: { organicMult: 1.4 },
+      desc: '+40 % de visiteurs gratuits.' },
+    { id: 'avis', cat: 'marque', label: 'Widget d’avis clients vérifiés', cost: 120_000, monthly: 2_500, effects: { conv: 0.08, repTarget: 3 },
+      desc: 'La preuve sociale rassure : conversion +8 %.' },
+    { id: 'marque_propre', cat: 'marque', label: 'Ta propre marque', cost: 1_500_000, requires: ['seo'], minRep: 55, effects: { priceTolerance: 0.15, organicMult: 1.2 },
+      desc: 'Les clients acceptent des prix 15 % plus élevés.' },
+    { id: 'emailing', cat: 'automatisation', label: 'Emailing et fidélisation', cost: 250_000, monthly: 4_000, effects: { repeat: 0.15 },
+      desc: '+15 % de commandes de clients fidèles (sans pub).' },
+    { id: 'marketplace', cat: 'automatisation', label: 'Vendre aussi sur une marketplace', cost: 400_000, effects: { marketplace: 1 },
+      desc: 'Beaucoup plus de visiteurs, mais 15 % de commission sur ces ventes.' },
+    { id: 'reassort_auto', cat: 'automatisation', label: 'Réassort automatique intelligent', cost: 350_000, monthly: 3_000, effects: { smartReorder: 1 },
+      desc: 'Les commandes fournisseur anticipent saisons et pics.' },
+  ],
+};
+return __exports;
+})();
+
+// ---- src/data/sectors/artisan.js ----
+__m["src/data/sectors/artisan.js"] = (function () {
+const __exports = {};
+__def(__exports, { "ARTISAN": () => ARTISAN });
+// Secteur 4 — Artisan du bâtiment (plombier-chauffagiste ou électricien). Montants en centimes.
+//
+// Mécanique : des DEVIS et un PLANNING. Les demandes arrivent selon le
+// bouche-à-oreille et la saison ; chaque devis est accepté ou non ; les
+// chantiers occupent des ouvriers (une camionnette par équipe de deux) ;
+// matériel acheté au démarrage, paiement à la fin.
+
+const PLOMBIER_JOBS = [
+  { id: 'depannage', label: 'Dépannage (fuite, débouchage)', days: 0.4, materials: 3_500, weight: 5, urgent: true, payNow: true, renoShare: 0.7 },
+  { id: 'entretien', label: 'Entretien de chaudière', days: 0.3, materials: 1_500, weight: 3, payNow: true, renoShare: 0.8, season: { 8: 1.5, 9: 1.7, 10: 1.5 } },
+  { id: 'chauffe_eau', label: 'Remplacement de chauffe-eau', days: 1, materials: 65_000, weight: 2, renoShare: 0.8 },
+  { id: 'chaudiere', label: 'Installation de chaudière', days: 2, materials: 280_000, weight: 1.5, renoShare: 0.75, season: { 0: 1.8, 1: 1.5, 9: 1.4, 10: 1.7, 11: 1.9 } },
+  { id: 'sdb', label: 'Rénovation de salle de bain', days: 8, materials: 450_000, weight: 1, renoShare: 0.85 },
+  { id: 'pac', label: 'Pompe à chaleur', days: 3, materials: 900_000, weight: 0.8, renoShare: 0.8, requires: 'certif' },
+];
+
+const ELEC_JOBS = [
+  { id: 'depannage', label: 'Dépannage électrique', days: 0.4, materials: 2_000, weight: 5, urgent: true, payNow: true, renoShare: 0.7 },
+  { id: 'conformite', label: 'Mise en conformité (RGIE)', days: 2.5, materials: 60_000, weight: 2, renoShare: 0.85 },
+  { id: 'borne', label: 'Borne de recharge', days: 1, materials: 110_000, weight: 1.5, renoShare: 0.6, trend: 0.15 },
+  { id: 'renovation', label: 'Rénovation électrique complète', days: 9, materials: 380_000, weight: 0.9, renoShare: 0.85 },
+  { id: 'domotique', label: 'Installation domotique', days: 4, materials: 200_000, weight: 0.8, renoShare: 0.6, requires: 'formation' },
+  { id: 'photovoltaique', label: 'Panneaux photovoltaïques', days: 3, materials: 600_000, weight: 1, renoShare: 0.7, requires: 'certif', season: { 3: 1.4, 4: 1.5, 5: 1.4 } },
+];
+
+const ARTISAN = {
+  id: 'artisan',
+  label: 'Artisan du bâtiment',
+  icon: 'wrench',
+  tagline: 'Plombier-chauffagiste ou électricien.',
+  description:
+    'Chaque demande devient un devis : prix trop haut, le client refuse ; trop bas, tu travailles pour rien. Planifie tes ouvriers (une camionnette par équipe de deux), achète le matériel au démarrage et fais tourner le bouche-à-oreille. TVA à 6 % pour la rénovation de logements de plus de 10 ans.',
+  b2c: false,
+  startCostExtra: 450_000, // acompte sur une camionnette d'occasion, outillage
+  homeSeats: 4,
+  metiers: {
+    plombier: { id: 'plombier', label: 'Plombier-chauffagiste', jobs: PLOMBIER_JOBS, seasonality: [1.35, 1.25, 1, 0.9, 0.85, 0.8, 0.8, 0.85, 1, 1.1, 1.25, 1.4] },
+    electricien: { id: 'electricien', label: 'Électricien', jobs: ELEC_JOBS, seasonality: [1, 1, 1.05, 1.05, 1, 0.95, 0.85, 0.85, 1.05, 1.05, 1, 0.95] },
+  },
+
+  refRate: 5_500, // 55 €/h HT
+  minRate: 2_500,
+  maxRate: 15_000,
+  refMargin: 0.2,
+  hoursPerDay: 8,
+  billableRatio: 0.72, // part du temps réellement facturable (trajets, devis, administratif)
+  elasticity: 1.4,
+  marketingRef: 40_000,
+  marketLeads: 3.4, // demandes/jour ouvré sur le marché local
+  weekendLeads: 0.35, // part des dépannages le week-end
+  baseAccept: 0.62,
+  urgentFee: 4_500, // forfait de déplacement des dépannages
+  travelPerDay: 2_500, // carburant + usure par jour de chantier
+  paymentDays: 30,
+  defaultProb: 0.035,
+  lateProb: 0.2,
+  vanMonthly: 30_000, // assurance, carburant fixe, entretien par camionnette
+  maintenanceContract: { fee: 1_400, signProb: 0.45, churnMonthly: 0.02, daysPerMonth: 0.03 },
+  womDecayMonthly: 0.03,
+
+  roles: {
+    ouvrier: { id: 'ouvrier', label: 'Ouvrier·ère qualifié·e', baseSalary: 290_000, skillRange: [30, 85], speed: 1,
+      desc: 'Une journée de chantier par jour ouvré (selon la compétence).' },
+    apprenti: { id: 'apprenti', label: 'Apprenti·e', baseSalary: 175_000, skillRange: [12, 40], speed: 0.55,
+      desc: 'Moins rapide, mais bon marché et progresse vite.' },
+    planificateur: { id: 'planificateur', label: 'Secrétariat & planning', baseSalary: 250_000, skillRange: [25, 80], max: 2, accept: 0.08,
+      desc: 'Répond vite aux clients : +8 % de devis acceptés, chantiers mieux organisés.' },
+  },
+
+  fixedCosts: [
+    { id: 'assurance', label: 'Assurance RC & décennale', amount: 14_000, vat: 0, cat: 'assurances' },
+    { id: 'telecom', label: 'Téléphone & logiciel de facturation', amount: 6_000, vat: 0.21, cat: 'logiciels' },
+    { id: 'vehicule', label: 'Camionnette (assurance, entretien)', amount: 30_000, vat: 0.21, cat: 'deplacements' },
+    { id: 'outils', label: 'Petit outillage & EPI', amount: 5_000, perHead: 2_500, vat: 0.21, cat: 'materiel' },
+  ],
+
+  upgrades: [
+    { id: 'atelier', cat: 'locaux', label: 'Atelier-dépôt', cost: 400_000, rent: 60_000, effects: { seats: 4, materialCut: 0.08 },
+      desc: 'Stocker le matériel acheté en gros : −8 % sur les matériaux, 4 places de plus.' },
+    { id: 'depot', cat: 'locaux', label: 'Grand dépôt et bureau', cost: 1_500_000, rent: 150_000, requires: ['atelier'], effects: { seats: 10, speedMult: 1.05 },
+      desc: '10 places de plus, logistique plus fluide.' },
+    { id: 'camionnette2', cat: 'materiel', label: '2e camionnette', cost: 2_800_000, monthly: 30_000, effects: { vans: 1 },
+      desc: 'Une équipe de plus sur la route (2 ouvriers par camionnette).' },
+    { id: 'camionnette3', cat: 'materiel', label: '3e et 4e camionnettes', cost: 5_200_000, monthly: 60_000, requires: ['camionnette2'], effects: { vans: 2 },
+      desc: 'Deux équipes de plus.' },
+    { id: 'outillage', cat: 'materiel', label: 'Outillage professionnel', cost: 350_000, effects: { speedMult: 1.12, quality: 0.04 },
+      desc: 'Chantiers 12 % plus rapides.' },
+    { id: 'camera', cat: 'materiel', label: 'Caméra thermique & détecteurs', cost: 180_000, effects: { quality: 0.06 },
+      desc: 'Diagnostics précis : moins de malfaçons.' },
+    { id: 'devis_logiciel', cat: 'process', label: 'Logiciel de devis en ligne', cost: 120_000, monthly: 3_500, effects: { accept: 0.08 },
+      desc: 'Devis envoyés le jour même : +8 % d’acceptation.' },
+    { id: 'planning', cat: 'process', label: 'Planification optimisée', cost: 200_000, effects: { speedMult: 1.08, travelCut: 0.15 },
+      desc: 'Moins de trajets inutiles.' },
+    { id: 'certif', cat: 'process', label: 'Certification « installateur agréé primes »', cost: 300_000, minRep: 40, effects: { unlock: 1, repTarget: 4 },
+      desc: 'Débloque pompes à chaleur / photovoltaïque et rassure les clients.' },
+    { id: 'formation', cat: 'process', label: 'Formation domotique', cost: 150_000, effects: { unlock: 1 },
+      desc: 'Débloque les chantiers domotiques (électricien).' },
+    { id: 'site_avis', cat: 'marque', label: 'Site web + avis Google', cost: 150_000, effects: { leadsMult: 1.18 },
+      desc: '+18 % de demandes.' },
+    { id: 'lettrage', cat: 'marque', label: 'Lettrage des véhicules', cost: 80_000, effects: { leadsMult: 1.08, repTarget: 2 },
+      desc: 'Ta camionnette devient une pub roulante.' },
+    { id: 'contrats', cat: 'automatisation', label: 'Contrats d’entretien annuels', cost: 120_000, effects: { contracts: 1 },
+      desc: 'Revenu récurrent : les clients paient un abonnement d’entretien.' },
+    { id: 'stock_camion', cat: 'automatisation', label: 'Stock embarqué dans les camionnettes', cost: 250_000, effects: { travelCut: 0.3, speedMult: 1.05 },
+      desc: 'Moins d’allers-retours au fournisseur.' },
+  ],
+};
+return __exports;
+})();
+
+// ---- src/data/sectors/soutien.js ----
+__m["src/data/sectors/soutien.js"] = (function () {
+const __exports = {};
+__def(__exports, { "SOUTIEN": () => SOUTIEN });
+// Secteur 5 — Centre de soutien scolaire. Montants en centimes.
+//
+// Mécanique : le RYTHME SCOLAIRE (Fédération Wallonie-Bruxelles). Les élèves
+// s'inscrivent à la rentrée et avant les examens, partent en fin d'année ; la
+// réputation dépend des RÉSULTATS aux sessions de janvier et de juin ; la
+// taille des groupes arbitre entre capacité et réussite.
+
+const SOUTIEN = {
+  id: 'soutien',
+  label: 'Soutien scolaire',
+  icon: 'book',
+  tagline: 'Remédiation, blocus et stages pour élèves du secondaire.',
+  description:
+    'Les élèves paient un abonnement mensuel. Ils arrivent à la rentrée et avant les examens, et partent en été. Tes résultats aux sessions de janvier et juin font ta réputation : petits groupes et bons profs = réussite, mais coût élevé.',
+  b2c: true,
+  vatRate: 0.21, // voir fiscalite.js : exemption possible selon les cas, le jeu prend 21 %
+  startCostExtra: 300_000, // tableaux, tables, manuels
+  homeSeats: 4, // enseignants (temps partiel) dans le local de départ
+  staffSeatKey: 'staffSeats',
+
+  refPrice: 17_500, // abonnement mensuel de référence TTC : 175 €
+  minPrice: 5_000,
+  maxPrice: 50_000,
+  elasticity: 1.5,
+  marketingRef: 40_000,
+
+  // Nouvelles familles qui cherchent un soutien, par mois, sur le marché local
+  marketPool: 140,
+  seasonality: [1.1, 0.8, 0.9, 1, 1.4, 1.1, 0.25, 0.7, 2.2, 1.2, 1.1, 1.3],
+  churnMonthly: 0.06,
+  yearEndChurn: 0.6, // départ massif fin juin
+  examMonths: [0, 5], // sessions de fin janvier et fin juin
+  groupSize: { min: 3, max: 12, default: 6 },
+  slotsPerTeacher: 5, // groupes par enseignant (le nombre d'élèves = groupes × taille)
+  founderSlots: 5,
+  baseSeats: 30, // places dans le local de départ
+  materialPerStudent: 400, // fournitures/mois
+  stage: { price: 18_000, month: [6, 7], pool: 70 }, // stages d'été (si amélioration)
+
+  roles: {
+    etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true,
+      desc: 'Temps partiel, bon marché, résultats moyens (3 groupes).' },
+    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 5, teach: true,
+      desc: 'Mi-temps, cher mais efficace (5 groupes).' },
+    coordinateur: { id: 'coordinateur', label: 'Coordinateur·rice pédagogique', baseSalary: 320_000, skillRange: [45, 90], max: 1, success: 0.05,
+      desc: 'Suivi des élèves et lien avec les parents : +5 points de réussite, moins de départs.' },
+  },
+
+  fixedCosts: [
+    { id: 'loyer', label: 'Loyer (local de quartier)', amount: 85_000, vat: 0, cat: 'loyer' },
+    { id: 'assurance', label: 'Assurance RC & accidents', amount: 5_500, vat: 0, cat: 'assurances' },
+    { id: 'logiciel', label: 'Plateforme d’inscription & suivi', amount: 4_000, perHead: 800, vat: 0.21, cat: 'logiciels' },
+  ],
+
+  upgrades: [
+    { id: 'salle2', cat: 'locaux', label: 'Deuxième salle de cours', cost: 400_000, rent: 45_000, effects: { seats: 25, staffSeats: 4 },
+      desc: '+25 élèves possibles.' },
+    { id: 'centre', cat: 'locaux', label: 'Centre en centre-ville', cost: 2_200_000, rent: 180_000, requires: ['salle2'], effects: { seats: 90, staffSeats: 12, attraction: 0.1 },
+      desc: '+90 élèves, adresse prestigieuse.' },
+    { id: 'antenne', cat: 'locaux', label: 'Antenne dans une 2e ville', cost: 3_500_000, rent: 150_000, requires: ['centre'], minRep: 60, effects: { seats: 80, staffSeats: 10, marketMult: 1.7 },
+      desc: '+70 % de marché.' },
+    { id: 'tableaux', cat: 'materiel', label: 'Tableaux interactifs', cost: 300_000, effects: { success: 0.03, attraction: 0.03 },
+      desc: 'Cours plus vivants : +3 points de réussite.' },
+    { id: 'tablettes', cat: 'materiel', label: 'Tablettes et exerciseurs', cost: 450_000, monthly: 3_000, effects: { success: 0.03 },
+      desc: 'Entraînement personnalisé.' },
+    { id: 'methode', cat: 'process', label: 'Méthode de remédiation éprouvée', cost: 250_000, effects: { success: 0.05 },
+      desc: '+5 points de réussite aux examens.' },
+    { id: 'suivi_parents', cat: 'process', label: 'Bulletin de suivi pour les parents', cost: 120_000, effects: { churnMult: 0.75, repTarget: 3 },
+      desc: '−25 % de désinscriptions en cours d’année.' },
+    { id: 'stages', cat: 'process', label: 'Stages de vacances', cost: 200_000, effects: { stages: 1 },
+      desc: 'Remplis l’été avec des stages intensifs (juillet-août).' },
+    { id: 'blocus', cat: 'process', label: 'Sessions « blocus » avant examens', cost: 150_000, effects: { examBoost: 0.4 },
+      desc: '+40 % d’inscriptions en décembre et en mai.' },
+    { id: 'flyers', cat: 'marque', label: 'Partenariat avec les associations de parents', cost: 100_000, effects: { attraction: 0.06 },
+      desc: 'Bouche-à-oreille des parents : +6 % d’attractivité.' },
+    { id: 'temoignages', cat: 'marque', label: 'Site avec témoignages et taux de réussite', cost: 220_000, effects: { attraction: 0.08, resultsVisible: 1 },
+      desc: 'Tes bons résultats attirent encore plus d’élèves.' },
+    { id: 'en_ligne', cat: 'automatisation', label: 'Cours en ligne hybrides', cost: 900_000, monthly: 8_000, effects: { seats: 40, marketMult: 1.25, slotsMult: 1.2 },
+      desc: '+40 places virtuelles, +25 % de marché, profs plus efficaces.' },
+  ],
+};
+return __exports;
+})();
+
 // ---- src/engine/sectors/registry.js ----
 __m["src/engine/sectors/registry.js"] = (function () {
 const __exports = {};
@@ -914,9 +1318,17 @@ __def(__exports, { "SECTOR_DATA": () => SECTOR_DATA, "sectorData": () => sectorD
 // Registre des DONNÉES de secteur (sans logique, pour éviter les dépendances circulaires).
 
 const { AGENCE } = __m["src/data/sectors/agence.js"];
+const { RESTAURANT } = __m["src/data/sectors/restaurant.js"];
+const { ECOMMERCE } = __m["src/data/sectors/ecommerce.js"];
+const { ARTISAN } = __m["src/data/sectors/artisan.js"];
+const { SOUTIEN } = __m["src/data/sectors/soutien.js"];
 
 const SECTOR_DATA = {
   agence: AGENCE,
+  restaurant: RESTAURANT,
+  ecommerce: ECOMMERCE,
+  artisan: ARTISAN,
+  soutien: SOUTIEN,
 };
 
 function sectorData(state) {
@@ -930,7 +1342,7 @@ return __exports;
 // ---- src/engine/ledger.js ----
 __m["src/engine/ledger.js"] = (function () {
 const __exports = {};
-__def(__exports, { "initLedger": () => initLedger, "resetMonth": () => resetMonth, "resetYear": () => resetYear, "earn": () => earn, "invoice": () => invoice, "processReceivables": () => processReceivables, "spend": () => spend, "pay": () => pay, "receive": () => receive, "amortizationForYear": () => amortizationForYear, "bookValue": () => bookValue, "receivablesTotal": () => receivablesTotal, "personalIn": () => personalIn, "personalOut": () => personalOut });
+__def(__exports, { "initLedger": () => initLedger, "resetMonth": () => resetMonth, "resetYear": () => resetYear, "earn": () => earn, "invoice": () => invoice, "processReceivables": () => processReceivables, "refund": () => refund, "spend": () => spend, "pay": () => pay, "receive": () => receive, "amortizationForYear": () => amortizationForYear, "bookValue": () => bookValue, "receivablesTotal": () => receivablesTotal, "personalIn": () => personalIn, "personalOut": () => personalOut });
 // Registre comptable : TOUT mouvement d'argent passe par ces fonctions.
 // Elles tiennent à jour la trésorerie, la TVA du trimestre, le compte de
 // résultat du mois et de l'année (base imposable) et les flux par catégorie
@@ -1071,6 +1483,22 @@ function processReceivables(state, onDefault) {
     }
   }
   f.receivables = keep;
+}
+
+/** Remboursement d'une vente (retour produit) : CA et TVA collectée diminuent. */
+function refund(state, ht, vatRate, cat) {
+  if (ht <= 0) return 0;
+  const vat = vatFor(state, ht, vatRate);
+  const f = state.finance;
+  state.cash -= ht + vat;
+  f.vat.collected -= vat;
+  f.month.revenue -= ht;
+  f.year.revenue -= ht;
+  f.totals.revenue -= ht;
+  f.month.revByCat[cat] = (f.month.revByCat[cat] || 0) - ht;
+  f.year.revByCat[cat] = (f.year.revByCat[cat] || 0) - ht;
+  recordOut(state, ht + vat, 'retours');
+  return ht + vat;
 }
 
 /**
@@ -1612,7 +2040,7 @@ function refreshCandidates(state, rng, n = 3) {
 
 function seatsAvailable(state) {
   const d = sectorData(state);
-  const seats = (d.homeSeats || 99) + upgradeEffect(state, 'seats');
+  const seats = (d.homeSeats || 99) + upgradeEffect(state, d.staffSeatKey || 'seats');
   const used = state.staff.employees.length + (state.staff.founder.active ? 1 : 0);
   return seats - used;
 }
@@ -1811,7 +2239,7 @@ return __exports;
 // ---- src/engine/sectors/agence.js ----
 __m["src/engine/sectors/agence.js"] = (function () {
 const __exports = {};
-__def(__exports, { "init": () => init, "hoursPerDay": () => hoursPerDay, "quality": () => quality, "backlogHours": () => backlogHours, "refPrice": () => refPrice, "playerAttraction": () => playerAttraction, "leadRate": () => leadRate, "leadAffordable": () => leadAffordable, "acceptLead": () => acceptLead, "declineLead": () => declineLead, "startSaas": () => startSaas, "daily": () => daily, "monthEnd": () => monthEnd, "marketValue": () => marketValue, "priceIndex": () => priceIndex, "recurringRevenue": () => recurringRevenue, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "eventOp": () => eventOp, "actions": () => actions, "onUpgrade": () => onUpgrade });
+__def(__exports, { "mainRole": () => mainRole, "init": () => init, "hoursPerDay": () => hoursPerDay, "quality": () => quality, "backlogHours": () => backlogHours, "refPrice": () => refPrice, "playerAttraction": () => playerAttraction, "leadRate": () => leadRate, "leadAffordable": () => leadAffordable, "acceptLead": () => acceptLead, "declineLead": () => declineLead, "startSaas": () => startSaas, "daily": () => daily, "monthEnd": () => monthEnd, "marketValue": () => marketValue, "priceIndex": () => priceIndex, "recurringRevenue": () => recurringRevenue, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "eventOp": () => eventOp, "actions": () => actions, "onUpgrade": () => onUpgrade });
 // Secteur agence web : leads → projets → heures → factures (+ maintenance, SaaS).
 
 const { AGENCE: D } = __m["src/data/sectors/agence.js"];
@@ -1828,6 +2256,8 @@ const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
 const WORKDAYS_PER_MONTH = 21;
+
+const mainRole = 'developpeur';
 
 function init(state) {
   state.sector = {
@@ -2280,6 +2710,1274 @@ function onUpgrade(state, id) {
 return __exports;
 })();
 
+// ---- src/engine/sectors/common.js ----
+__m["src/engine/sectors/common.js"] = (function () {
+const __exports = {};
+__def(__exports, { "htFromTtc": () => htFromTtc, "diffOf": () => diffOf, "playerMarket": () => playerMarket, "baseWhy": () => baseWhy, "prodMod": () => prodMod });
+// Briques communes aux secteurs.
+
+const { DIFFICULTIES } = __m["src/data/difficulty.js"];
+const { attractiveness, playerShare } = __m["src/engine/demand.js"];
+const { modMult } = __m["src/engine/modifiers.js"];
+const { economyIndex } = __m["src/engine/systems/core.js"];
+
+/** HT à partir d'un prix TTC (B2C). En franchise TVA, HT = TTC. */
+function htFromTtc(state, ttc, vatRate) {
+  if (state.finance.franchise) return ttc;
+  return Math.round(ttc / (1 + vatRate));
+}
+
+function diffOf(state) {
+  return DIFFICULTIES[state.meta.difficulty];
+}
+
+/** Attractivité + part de marché du joueur pour un prix donné. */
+function playerMarket(state, D, price, ref, extra = 1) {
+  const att = attractiveness({
+    price,
+    refPrice: ref,
+    elasticity: D.elasticity,
+    quality: state.company.quality,
+    reputation: state.company.reputation,
+    marketing: state.company.marketing,
+    marketingRef: D.marketingRef,
+    extra: extra * modMult(state, 'attraction'),
+  });
+  const share = playerShare(state, att.value);
+  state.company.share = share;
+  state.company.attraction = att.value;
+  return { att, share, eco: economyIndex(state), ev: modMult(state, 'demand') };
+}
+
+/** Lignes du panneau « pourquoi ? » communes. */
+function baseWhy(m, priceHint) {
+  return [
+    { label: 'Part de marché', value: m.share, kind: 'pct' },
+    { label: 'Prix', value: m.att.parts.prix, hint: priceHint },
+    { label: 'Qualité', value: m.att.parts.qualite, hint: 'Qualité perçue face au marché.' },
+    { label: 'Réputation', value: m.att.parts.reputation, hint: 'Satisfaction accumulée des clients.' },
+    { label: 'Marketing', value: m.att.parts.marketing, hint: 'Rendements décroissants.' },
+    { label: 'Conjoncture', value: m.eco, hint: 'Indice économique général.' },
+    { label: 'Événements', value: m.ev, hint: 'Effets temporaires en cours.' },
+  ];
+}
+
+/** Productivité globale (événements). */
+function prodMod(state) {
+  return modMult(state, 'productivity');
+}
+return __exports;
+})();
+
+// ---- src/engine/sectors/restaurant.js ----
+__m["src/engine/sectors/restaurant.js"] = (function () {
+const __exports = {};
+__def(__exports, { "mainRole": () => mainRole, "blendedVat": () => blendedVat, "init": () => init, "unitCost": () => unitCost, "refPrice": () => refPrice, "priceIndex": () => priceIndex, "marketValue": () => marketValue, "stockQty": () => stockQty, "stockValue": () => stockValue, "quality": () => quality, "capacities": () => capacities, "expectedClients": () => expectedClients, "daily": () => daily, "monthEnd": () => monthEnd, "eventOp": () => eventOp, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "actions": () => actions });
+// Secteur friterie : affluence (jour, météo, saison), stock périssable, capacité de
+// service, files d'attente, hygiène et contrôles AFSCA.
+
+const { RESTAURANT: D } = __m["src/data/sectors/restaurant.js"];
+const { FISCALITE } = __m["src/data/fiscalite.js"];
+const { dateOf } = __m["src/engine/calendar.js"];
+const { earn, spend, pay } = __m["src/engine/ledger.js"];
+const { upgradeEffect } = __m["src/engine/upgrades.js"];
+const { modMult } = __m["src/engine/modifiers.js"];
+const { productivity, qualityOf } = __m["src/engine/systems/staff.js"];
+const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
+const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { log } = __m["src/engine/log.js"];
+const { clamp } = __m["src/engine/money.js"];
+
+const mainRole = 'vendeur';
+
+/** Taux de TVA moyen d'un ticket (nourriture + boissons). */
+function blendedVat() {
+  return (1 - D.drinksShare) * FISCALITE.tva.restaurantFood + D.drinksShare * FISCALITE.tva.restaurantDrinks;
+}
+
+function init(state) {
+  state.sector = {
+    price: D.refPrice,
+    ingredient: 2,
+    stockDays: 1.3,
+    cleaning: 15_000, // budget nettoyage mensuel HT
+    hygiene: 80,
+    lots: [{ qty: 60, exp: D.shelfLife }],
+    pending: 0,
+    recent: [], // demande des 7 derniers jours
+    closedUntil: -1,
+    today: { demand: 0, served: 0, lostQueue: 0, lostStock: 0, capacity: 0 },
+    stats: { served: 0, lost: 0, wasted: 0, wastedMonth: 0, bestDay: 0, afscaOk: 0 },
+  };
+}
+
+function ingredient(state) {
+  return D.ingredients.find((i) => i.level === state.sector.ingredient) || D.ingredients[1];
+}
+
+function unitCost(state) {
+  return Math.round(ingredient(state).cost * modMult(state, 'unitCost'));
+}
+
+function refPrice() {
+  return D.refPrice;
+}
+
+function priceIndex(state) {
+  return state.sector.price / D.refPrice;
+}
+
+function marketMult(state) {
+  return upgradeEffect(state, 'marketMult') || 1;
+}
+
+function marketValue(state) {
+  return D.marketClients * marketMult(state) * diffOf(state).marketMult * 30 * htFromTtc(state, D.refPrice, blendedVat());
+}
+
+function stockQty(state) {
+  return state.sector.lots.reduce((s, l) => s + l.qty, 0);
+}
+
+function stockValue(state) {
+  return stockQty(state) * ingredient(state).cost;
+}
+
+function quality(state) {
+  const s = state.sector;
+  let q = ingredient(state).quality;
+  let cooks = 0;
+  for (const e of state.staff.employees) {
+    if (e.role === 'cuisinier') {
+      q += D.roles.cuisinier.quality * (qualityOf(e) - 0.8);
+      cooks++;
+    }
+  }
+  if (!cooks && !state.staff.founder.active) q -= 0.1; // personne en cuisine qui maîtrise
+  q += upgradeEffect(state, 'quality');
+  q *= 0.82 + 0.0018 * s.hygiene;
+  return clamp(q * modMult(state, 'quality'), 0.3, 2);
+}
+
+/** Capacités de cuisine et de comptoir (clients/jour). */
+function capacities(state) {
+  const f = state.staff.founder;
+  let kitchen = f.active ? D.founderKitchen * (f.energy / 100 * 0.3 + 0.7) : 0;
+  let counter = f.active ? D.founderCounter * (f.energy / 100 * 0.3 + 0.7) : 0;
+  for (const e of state.staff.employees) {
+    const r = D.roles[e.role];
+    if (!r) continue;
+    const p = productivity(state, e);
+    if (r.kitchen) kitchen += r.kitchen * p;
+    if (r.counter) counter += r.counter * p;
+  }
+  kitchen = (kitchen + upgradeEffect(state, 'kitchen')) * upgradeEffect(state, 'kitchenMult');
+  counter = (counter + upgradeEffect(state, 'counter')) * upgradeEffect(state, 'counterMult');
+  const m = modMult(state, 'capacity') * prodMod(state);
+  return { kitchen: kitchen * m, counter: counter * m, total: Math.min(kitchen, counter) * m };
+}
+
+/** Clients attendus (λ) pour un jour donné, avec le détail des facteurs. */
+function expectedClients(state, day = state.time.day, weatherOverride = null) {
+  const d = dateOf(day);
+  const m = playerMarket(state, D, state.sector.price, D.refPrice, 1 + upgradeEffect(state, 'attraction'));
+  const wName = weatherOverride || state.world.weather;
+  let weather = D.weather[wName] ?? 1;
+  if (wName === 'soleil') weather += upgradeEffect(state, 'sunBonus');
+  if (wName === 'pluie') {
+    const protect = Math.min(1, upgradeEffect(state, 'rainProtect') + (state.flags.delivery ? 0.5 : 0));
+    weather = 1 - (1 - weather) * (1 - protect);
+  }
+  const delivery = state.flags.delivery ? 1.1 : 1;
+  const lambda =
+    D.marketClients * marketMult(state) * diffOf(state).marketMult * D.weekday[d.weekday] * weather * D.seasonality[d.month] * m.eco * m.ev * m.share * delivery;
+  return { lambda, m, weekday: D.weekday[d.weekday], weather, season: D.seasonality[d.month], location: marketMult(state), delivery };
+}
+
+function consume(state, n) {
+  let left = n;
+  for (const l of state.sector.lots) {
+    if (left <= 0) break;
+    const t = Math.min(l.qty, left);
+    l.qty -= t;
+    left -= t;
+  }
+  state.sector.lots = state.sector.lots.filter((l) => l.qty > 0);
+  return n - left;
+}
+
+function daily(state, rng) {
+  const s = state.sector;
+  const day = state.time.day;
+  state.company.quality = quality(state);
+  // Livraison du matin
+  if (s.pending > 0) {
+    s.lots.push({ qty: s.pending, exp: day + D.shelfLife + upgradeEffect(state, 'shelfLife') });
+    s.pending = 0;
+  }
+  const ex = expectedClients(state);
+  const caps = capacities(state);
+  const closed = s.closedUntil > day;
+  const demand = closed ? 0 : rng.poisson(ex.lambda);
+  const capacity = Math.floor(caps.total);
+  const canServe = Math.min(demand, capacity);
+  const served = consume(state, canServe);
+  const lostQueue = Math.max(0, demand - capacity);
+  const lostStock = canServe - served;
+  s.today = { demand, served, lostQueue, lostStock, capacity, closed };
+  s.recent.push(demand);
+  if (s.recent.length > 7) s.recent.shift();
+  s.stats.served += served;
+  s.stats.lost += lostQueue + lostStock;
+  s.stats.bestDay = Math.max(s.stats.bestDay, served);
+  state.stats.unitsSold = (state.stats.unitsSold || 0) + served;
+
+  // Chiffre d'affaires
+  if (served > 0) {
+    const vat = blendedVat();
+    const ttc = served * s.price;
+    earn(state, htFromTtc(state, ttc, vat), vat, 'ventes');
+    if (state.flags.delivery) {
+      const deliveredShare = 0.1 / 1.1;
+      spend(state, Math.round(htFromTtc(state, ttc, vat) * deliveredShare * D.deliveryCommission), 0.21, 'logistique');
+    }
+  }
+  // Satisfaction
+  if (demand > 0) {
+    const valueForMoney = D.refPrice / s.price;
+    let score = 50 + 70 * (state.company.quality - 0.85) + 25 * (valueForMoney - 1);
+    score -= 45 * (lostQueue / demand) + 30 * (lostStock / demand);
+    rateCustomer(state, clamp(score, 0, 100), 0.03);
+  }
+  // Hygiène
+  let regen = s.cleaning / 30 / 400 + upgradeEffect(state, 'hygieneRegen');
+  for (const e of state.staff.employees) if (e.role === 'plongeur') regen += D.roles.plongeur.hygiene * productivity(state, e);
+  s.hygiene = clamp(s.hygiene - 0.35 - served / 220 + regen, 0, 100);
+  // Péremption
+  const expired = s.lots.filter((l) => l.exp <= day + 1);
+  const waste = expired.reduce((t, l) => t + l.qty, 0);
+  if (waste > 0) {
+    s.lots = s.lots.filter((l) => l.exp > day + 1);
+    s.stats.wasted += waste;
+    s.stats.wastedMonth += waste;
+  }
+  // Commande pour demain
+  let forecast;
+  if (upgradeEffect(state, 'forecast') > 0) forecast = expectedClients(state, day + 1).lambda * 1.05;
+  else {
+    // moyenne récente corrigée du jour de la semaine de demain
+    const avg = s.recent.reduce((a, b) => a + b, 0) / Math.max(1, s.recent.length);
+    const meanWd = D.weekday.reduce((a, b) => a + b, 0) / 7;
+    forecast = (avg * D.weekday[dateOf(day + 1).weekday]) / meanWd;
+  }
+  forecast = Math.min(forecast, capacity * 1.1);
+  const keep = s.lots.filter((l) => l.exp > day + 2).reduce((t, l) => t + l.qty, 0);
+  const order = Math.max(0, Math.round(forecast * s.stockDays - keep));
+  if (order > 0 && !closed) {
+    s.pending = order;
+    spend(state, order * unitCost(state), D.purchaseVat, 'stock');
+  }
+  // Énergie et nettoyage (au prorata quotidien)
+  spend(state, Math.round((D.energyBase * modMult(state, 'energy')) / 30), 0.21, 'energie');
+  if (s.cleaning > 0) spend(state, Math.round(s.cleaning / 30), 0.21, 'materiel');
+
+  state.company.capacityUse = capacity > 0 ? served / capacity : 1;
+  state.staff.lastWorkload = capacity > 0 ? demand / capacity : 0;
+  state.company.demandPerDay = ex.lambda;
+  state.company.why = [
+    ...baseWhy(ex.m, `Ticket moyen ${(s.price / 100).toFixed(2).replace('.', ',')} € (marché 11,50 €).`),
+    { label: 'Jour de la semaine', value: ex.weekday, hint: 'Vendredi et samedi sont les meilleurs jours.' },
+    { label: 'Météo', value: ex.weather, hint: 'Soleil + terrasse = foule ; la pluie fait fuir.' },
+    { label: 'Saison', value: ex.season, hint: 'L’été est la haute saison.' },
+    { label: 'Emplacement', value: ex.location, hint: 'Place du marché, 2e établissement.' },
+  ];
+  state.company.bottleneck = closed
+    ? 'ferme'
+    : lostStock > demand * 0.08
+      ? 'stock'
+      : lostQueue > demand * 0.08
+        ? 'personnel'
+        : ex.m.share < 0.12
+          ? 'demande'
+          : null;
+}
+
+function monthEnd(state) {
+  const s = state.sector;
+  if (s.stats.wastedMonth > 0) log(state, 'info', `Gaspillage du mois : ${s.stats.wastedMonth} portions jetées (${Math.round((s.stats.wastedMonth * ingredient(state).cost) / 100)} €).`);
+  s.stats.wastedMonth = 0;
+}
+
+/** Contrôle de l'AFSCA (appelé par l'événement). */
+function afsca(state) {
+  const s = state.sector;
+  const score = s.hygiene + upgradeEffect(state, 'afscaBonus');
+  if (score >= 75) {
+    changeReputation(state, 2);
+    s.stats.afscaOk += 1;
+    state.stats.afscaOk = (state.stats.afscaOk || 0) + 1;
+    log(state, 'good', `Contrôle AFSCA réussi (hygiène ${Math.round(s.hygiene)}/100) : smiley affiché en vitrine !`, true);
+  } else if (score >= 55) {
+    pay(state, 40_000, 'amendes');
+    log(state, 'bad', `AFSCA : avertissement et amende de 400 € (hygiène ${Math.round(s.hygiene)}/100).`, true);
+  } else if (score >= 35) {
+    pay(state, 150_000, 'amendes');
+    changeReputation(state, -4);
+    log(state, 'bad', `AFSCA : infractions constatées, amende de 1 500 € (hygiène ${Math.round(s.hygiene)}/100).`, true);
+  } else {
+    pay(state, 300_000, 'amendes');
+    changeReputation(state, -10);
+    s.closedUntil = state.time.day + 5;
+    log(state, 'bad', `AFSCA : fermeture administrative de 5 jours et amende de 3 000 € (hygiène ${Math.round(s.hygiene)}/100) !`, true);
+  }
+}
+
+function eventOp(state, e) {
+  const s = state.sector;
+  switch (e.op) {
+    case 'afsca':
+      afsca(state);
+      break;
+    case 'stockLoss':
+      for (const l of s.lots) l.qty = Math.floor(l.qty * (1 - e.pct));
+      s.lots = s.lots.filter((l) => l.qty > 0);
+      break;
+    case 'close':
+      s.closedUntil = Math.max(s.closedUntil, state.time.day + e.days);
+      break;
+    case 'hygiene':
+      s.hygiene = clamp(s.hygiene + e.v, 0, 100);
+      break;
+    case 'heatwave':
+      s.hygiene = clamp(s.hygiene - 8, 0, 100);
+      break;
+    default:
+      break;
+  }
+}
+
+function kpis(state) {
+  const s = state.sector;
+  const caps = capacities(state);
+  const avg = s.recent.length ? s.recent.reduce((a, b) => a + b, 0) / s.recent.length : 0;
+  return [
+    { label: 'Ticket moyen TTC', value: s.price, fmt: 'eur2' },
+    { label: 'Clients/jour (moy. 7 j)', value: avg, fmt: 'num0' },
+    { label: 'Capacité/jour', value: caps.total, fmt: 'num0' },
+    { label: 'Stock (portions)', value: stockQty(state), fmt: 'int' },
+    { label: 'Hygiène', value: s.hygiene, fmt: 'num0', suffix: '/100' },
+    { label: 'Servis hier', value: s.today.served, fmt: 'int' },
+  ];
+}
+
+function sceneInfo(state) {
+  const t = state.sector.today;
+  return { activity: Math.min(1, t.capacity ? t.served / t.capacity : 0), customers: Math.min(8, Math.round(t.served / 12)), queue: t.lostQueue > 0 };
+}
+
+const actions = {
+  setPrice(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.price = clamp(v, D.minPrice, D.maxPrice);
+    return { ok: true };
+  },
+  setIngredient(state, a) {
+    const lvl = Number(a.value);
+    if (![1, 2, 3].includes(lvl)) return { ok: false, message: 'Niveau inconnu.' };
+    state.sector.ingredient = lvl;
+    return { ok: true };
+  },
+  setStockDays(state, a) {
+    const v = Number(a.value) / 100;
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.stockDays = clamp(v, 0.5, 4);
+    return { ok: true };
+  },
+  setCleaning(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.cleaning = clamp(v, 0, 500_000);
+    return { ok: true };
+  },
+};
+return __exports;
+})();
+
+// ---- src/engine/sectors/ecommerce.js ----
+__m["src/engine/sectors/ecommerce.js"] = (function () {
+const __exports = {};
+__def(__exports, { "mainRole": () => mainRole, "init": () => init, "slots": () => slots, "priceIndex": () => priceIndex, "refPrice": () => refPrice, "marketValue": () => marketValue, "stockValue": () => stockValue, "quality": () => quality, "cpc": () => cpc, "orderCapacity": () => orderCapacity, "funnel": () => funnel, "daily": () => daily, "monthEnd": () => monthEnd, "eventOp": () => eventOp, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "actions": () => actions });
+// Secteur e-commerce : trafic (organique + payant), conversion, catalogue,
+// stock acheté à l'avance avec délai fournisseur, préparation des commandes,
+// logistique, retours, pics saisonniers (Black Friday, fêtes).
+
+const { ECOMMERCE: D } = __m["src/data/sectors/ecommerce.js"];
+const { dateOf } = __m["src/engine/calendar.js"];
+const { earn, spend, refund } = __m["src/engine/ledger.js"];
+const { upgradeEffect } = __m["src/engine/upgrades.js"];
+const { modMult } = __m["src/engine/modifiers.js"];
+const { productivity, countRole } = __m["src/engine/systems/staff.js"];
+const { rateCustomer } = __m["src/engine/systems/company.js"];
+const { priceFactor, reputationFactor } = __m["src/engine/demand.js"];
+const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { log } = __m["src/engine/log.js"];
+const { clamp } = __m["src/engine/money.js"];
+
+const mainRole = 'logisticien';
+const P = Object.fromEntries(D.products.map((p) => [p.id, p]));
+
+function init(state) {
+  const prices = {};
+  const stock = {};
+  for (const p of D.products) {
+    prices[p.id] = p.ref;
+    stock[p.id] = 0;
+  }
+  stock.gourde = 60;
+  stock.lampe = 40;
+  state.sector = {
+    listed: ['gourde', 'lampe'],
+    prices,
+    stock,
+    pos: [], // commandes fournisseur en cours : { id, qty, arrive }
+    reorder: true,
+    coverDays: 30,
+    sales: {}, // ventes quotidiennes récentes par produit (14 jours)
+    backlog: 0,
+    returnsQ: [],
+    today: { visitors: 0, paid: 0, organic: 0, orders: 0, lostStock: 0, shipped: 0, conversion: 0 },
+    stats: { orders: 0, returns: 0, lostStock: 0, bestDay: 0, revenueOrders: 0 },
+  };
+}
+
+function slots(state) {
+  return D.startSlots + upgradeEffect(state, 'slots');
+}
+
+/** Prix relatif moyen du catalogue (1 = prix de référence). */
+function priceIndex(state) {
+  const s = state.sector;
+  if (!s.listed.length) return 1;
+  let t = 0;
+  for (const id of s.listed) t += s.prices[id] / P[id].ref;
+  return t / s.listed.length / (1 + upgradeEffect(state, 'priceTolerance'));
+}
+
+function refPrice() {
+  return 1;
+}
+
+function marketValue(state) {
+  return D.organicVisitors * diffOf(state).marketMult * 30 * D.baseConversion * 3_400 * 2;
+}
+
+function stockValue(state) {
+  let v = 0;
+  for (const p of D.products) v += (state.sector.stock[p.id] || 0) * p.cost;
+  for (const po of state.sector.pos) v += po.qty * P[po.id].cost;
+  return v;
+}
+
+function quality(state) {
+  let q = 0.92 + upgradeEffect(state, 'conv') * 0.6;
+  for (const e of state.staff.employees) if (e.role === 'service_client') q += 0.04 * productivity(state, e);
+  return clamp(q * modMult(state, 'quality'), 0.3, 2);
+}
+
+/** Coût par clic effectif (centimes). */
+function cpc(state) {
+  const d = dateOf(state.time.day);
+  const mk = Math.min(2, countRole(state, 'marketeur'));
+  const comp = state.competitors.filter((c) => c.alive);
+  const pressure = comp.length ? 0.8 + (0.2 * comp.reduce((s, c) => s + c.mkt, 0)) / comp.length : 1;
+  return D.cpc * D.cpcSeason[d.month] * (1 - D.roles.marketeur.cpcCut * mk) * modMult(state, 'cpc') * pressure;
+}
+
+function blackFriday(day) {
+  const d = dateOf(day);
+  const b = D.blackFriday;
+  return d.month === b.month && d.dom >= b.from && d.dom <= b.to ? b.mult : 1;
+}
+
+function orderCapacity(state) {
+  let c = state.staff.founder.active ? D.founderOrders : 0;
+  for (const e of state.staff.employees) if (e.role === 'logisticien') c += D.roles.logisticien.orders * productivity(state, e);
+  return (c * upgradeEffect(state, 'ordersMult') + upgradeEffect(state, 'ordersAdd')) * modMult(state, 'capacity') * prodMod(state);
+}
+
+/** Trafic et conversion attendus aujourd'hui. */
+function funnel(state) {
+  const d = dateOf(state.time.day);
+  const m = playerMarket(state, D, priceIndex(state), 1, 1);
+  const season = D.seasonality[d.month] * blackFriday(state.time.day);
+  const repeat = 1 + upgradeEffect(state, 'repeat');
+  const organic = D.organicVisitors * diffOf(state).marketMult * m.share * upgradeEffect(state, 'organicMult') * m.eco * repeat;
+  const paid = state.company.marketing > 0 ? state.company.marketing / 30 / cpc(state) : 0;
+  const mpShare = upgradeEffect(state, 'marketplace') > 0 ? 0.6 : 0;
+  const visitors = (organic + paid) * (1 + mpShare);
+  const mk = Math.min(2, countRole(state, 'marketeur'));
+  const convBoost = 1 + upgradeEffect(state, 'conv') + D.roles.marketeur.conv * mk;
+  const pf = priceFactor(priceIndex(state) * modMult(state, 'priceCut'), 1, D.elasticity);
+  const conversion = D.baseConversion * pf * convBoost * reputationFactor(state.company.reputation) * season * m.ev;
+  return { m, organic, paid, visitors, conversion, season, pf, convBoost, mpShare };
+}
+
+function productWeights(state) {
+  const d = dateOf(state.time.day);
+  const s = state.sector;
+  return s.listed.map((id) => {
+    const p = P[id];
+    const seas = p.season && p.season[d.month] ? p.season[d.month] : 1;
+    return { id, w: p.weight * seas * priceFactor(s.prices[id], p.ref, D.elasticity) };
+  });
+}
+
+function avgDailySales(state, id) {
+  const arr = state.sector.sales[id] || [];
+  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+}
+
+function placeOrder(state, id, qty) {
+  const p = P[id];
+  const q = Math.max(0, Math.round(qty));
+  if (!q) return 0;
+  const lead = Math.round(D.leadTime * modMult(state, 'delivery'));
+  state.sector.pos.push({ id, qty: q, arrive: state.time.day + lead });
+  spend(state, Math.round(q * p.cost * modMult(state, 'unitCost')), p.vat, 'stock');
+  return q;
+}
+
+function autoReorder(state) {
+  const s = state.sector;
+  const d = dateOf(state.time.day);
+  for (const id of s.listed) {
+    const p = P[id];
+    let avg = avgDailySales(state, id);
+    if (!(s.sales[id] || []).length) avg = 2;
+    if (upgradeEffect(state, 'smartReorder') > 0) {
+      const next = (d.month + 1) % 12;
+      const seas = (p.season && p.season[next]) || 1;
+      avg = Math.max(avg, avg * seas * (D.seasonality[next] / D.seasonality[d.month]));
+    }
+    const inbound = s.pos.filter((x) => x.id === id).reduce((t, x) => t + x.qty, 0);
+    const position = (s.stock[id] || 0) + inbound;
+    const rop = avg * (D.leadTime + 5);
+    if (position < rop) placeOrder(state, id, Math.max(15, avg * s.coverDays));
+  }
+}
+
+function daily(state, rng) {
+  const s = state.sector;
+  const day = state.time.day;
+  state.company.quality = quality(state);
+  // Réceptions fournisseur
+  const arrived = s.pos.filter((x) => x.arrive <= day);
+  if (arrived.length) {
+    for (const po of arrived) s.stock[po.id] = (s.stock[po.id] || 0) + po.qty;
+    s.pos = s.pos.filter((x) => x.arrive > day);
+  }
+  const f = funnel(state);
+  const orders = rng.poisson(f.visitors * f.conversion);
+  const weights = productWeights(state);
+  let sold = 0;
+  let lostStock = 0;
+  const soldBy = {};
+  const vatBy = {};
+  for (let i = 0; i < orders; i++) {
+    let pick = rng.weighted(weights, 'w');
+    if (!pick) break;
+    if ((s.stock[pick.id] || 0) <= 0) {
+      const alt = weights.filter((w) => (s.stock[w.id] || 0) > 0);
+      if (!alt.length || rng.chance(0.6)) {
+        lostStock++;
+        continue;
+      }
+      pick = rng.weighted(alt, 'w');
+    }
+    s.stock[pick.id] -= 1;
+    soldBy[pick.id] = (soldBy[pick.id] || 0) + 1;
+    sold++;
+    const p = P[pick.id];
+    const ttc = Math.round(s.prices[pick.id] * modMult(state, 'priceCut'));
+    vatBy[p.vat] = (vatBy[p.vat] || 0) + ttc;
+  }
+  // Encaissement (paiement à la commande)
+  let htTotal = 0;
+  let ttcTotal = 0;
+  for (const [rate, ttc] of Object.entries(vatBy)) {
+    const ht = htFromTtc(state, ttc, Number(rate));
+    htTotal += ht;
+    ttcTotal += ttc;
+    earn(state, ht, Number(rate), 'ventes');
+  }
+  // Frais de paiement (services financiers : pas de TVA)
+  if (sold) spend(state, Math.round(ttcTotal * D.paymentPct + sold * D.paymentFixed), 0, 'frais_bancaires');
+  if (f.mpShare > 0 && htTotal > 0) spend(state, Math.round(htTotal * (f.mpShare / (1 + f.mpShare)) * 0.15), 0.21, 'marketing');
+  for (const id of s.listed) {
+    const arr = (s.sales[id] = s.sales[id] || []);
+    arr.push(soldBy[id] || 0);
+    if (arr.length > 14) arr.shift();
+  }
+  // Préparation et expédition
+  s.backlog += sold;
+  const cap = orderCapacity(state);
+  const shipped = Math.min(s.backlog, Math.floor(cap));
+  s.backlog -= shipped;
+  if (shipped > 0) {
+    const avgShip = s.listed.reduce((t, id) => t + P[id].ship, 0) / Math.max(1, s.listed.length);
+    const shipCut = Math.min(0.4, upgradeEffect(state, 'shipCut'));
+    spend(state, Math.round(shipped * (avgShip + D.packing) * (1 - shipCut)), 0.21, 'logistique');
+  }
+  // Retours (programmés)
+  const svc = state.staff.employees.filter((e) => e.role === 'service_client').reduce((t, e) => t + productivity(state, e), 0);
+  const retMult = upgradeEffect(state, 'returnsMult') * modMult(state, 'returns') * Math.max(0.4, 1 - D.roles.service_client.returnsCut * svc);
+  for (const [id, n] of Object.entries(soldBy)) {
+    const p = P[id];
+    for (let i = 0; i < n; i++) {
+      if (rng.chance(p.returns * retMult)) s.returnsQ.push({ day: day + D.returnDelay, id, ttc: s.prices[id], vat: p.vat });
+    }
+  }
+  const dueReturns = s.returnsQ.filter((r) => r.day <= day);
+  if (dueReturns.length) {
+    s.returnsQ = s.returnsQ.filter((r) => r.day > day);
+    for (const r of dueReturns) {
+      refund(state, htFromTtc(state, r.ttc, r.vat), r.vat, 'ventes');
+      if (rng.chance(D.returnResellable)) s.stock[r.id] = (s.stock[r.id] || 0) + 1;
+      s.stats.returns++;
+    }
+  }
+  // Stockage
+  const sv = stockValue(state);
+  if (sv > 0) spend(state, Math.round((sv * D.storageMonthlyPct * (1 - Math.min(0.6, upgradeEffect(state, 'storageCut')))) / 30), 0.21, 'logistique');
+  if (s.reorder) autoReorder(state);
+
+  // Satisfaction
+  if (orders > 0) {
+    const delay = s.backlog / Math.max(1, cap);
+    const score = 58 + 35 * (f.pf - 1) + 6 * svc - 25 * Math.min(2, delay) - 25 * (lostStock / orders) + 30 * (state.company.quality - 0.92);
+    rateCustomer(state, clamp(score, 0, 100), 0.02);
+  }
+  s.today = { visitors: Math.round(f.visitors), paid: Math.round(f.paid), organic: Math.round(f.organic), orders, sold, lostStock, shipped, conversion: f.conversion };
+  s.stats.orders += sold;
+  s.stats.lostStock += lostStock;
+  s.stats.bestDay = Math.max(s.stats.bestDay, sold);
+  state.stats.unitsSold = (state.stats.unitsSold || 0) + sold;
+  state.company.capacityUse = cap > 0 ? Math.min(1, (shipped + s.backlog) / cap) : 1;
+  state.staff.lastWorkload = cap > 0 ? (sold + s.backlog) / cap : 0;
+  state.company.demandPerDay = f.visitors * f.conversion;
+  state.company.why = [
+    ...baseWhy(f.m, 'Prix moyen de ton catalogue face au marché (les clients comparent beaucoup en ligne).'),
+    { label: 'Saison / Black Friday', value: f.season, hint: 'Novembre-décembre explosent, février est mou.' },
+    { label: 'Conversion (photos, avis…)', value: f.convBoost, hint: 'Améliorations et marketeurs.' },
+    { label: 'Trafic payant', value: 1 + f.paid / Math.max(1, f.organic + f.paid), hint: 'Part des visiteurs achetés en publicité.' },
+  ];
+  state.company.bottleneck = lostStock > orders * 0.1 ? 'stock' : s.backlog > cap ? 'personnel' : f.visitors < 80 ? 'demande' : null;
+}
+
+function monthEnd(state) {
+  const s = state.sector;
+  for (const id of s.listed) {
+    if ((s.stock[id] || 0) === 0 && !s.pos.some((x) => x.id === id)) log(state, 'bad', `Rupture de stock : ${P[id].label}. Pense à commander !`);
+  }
+}
+
+function eventOp(state, e) {
+  const s = state.sector;
+  if (e.op === 'delayOrders') for (const po of s.pos) po.arrive += e.days;
+  if (e.op === 'stockLoss') for (const id of Object.keys(s.stock)) s.stock[id] = Math.floor(s.stock[id] * (1 - e.pct));
+}
+
+function kpis(state) {
+  const t = state.sector.today;
+  const paidOrders = t.visitors > 0 ? (t.orders * t.paid) / t.visitors : 0;
+  const cac = paidOrders > 0 ? state.company.marketing / 30 / paidOrders : 0;
+  return [
+    { label: 'Visiteurs/jour', value: t.visitors, fmt: 'int' },
+    { label: 'Conversion', value: t.conversion, fmt: 'pct' },
+    { label: 'Commandes hier', value: t.orders, fmt: 'int' },
+    { label: 'Coût d’acquisition', value: cac, fmt: 'eur2' },
+    { label: 'Valeur du stock', value: stockValue(state), fmt: 'eur' },
+    { label: 'À expédier', value: state.sector.backlog, fmt: 'int' },
+  ];
+}
+
+function sceneInfo(state) {
+  const t = state.sector.today;
+  return { activity: Math.min(1, t.shipped / 30), customers: Math.min(6, Math.round(t.shipped / 8)), parcels: Math.min(10, t.shipped) };
+}
+
+const actions = {
+  setProductPrice(state, a) {
+    const p = P[a.id];
+    const v = Math.round(Number(a.value));
+    if (!p || !Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.prices[a.id] = clamp(v, Math.round(p.cost * 0.8), p.ref * 3);
+    return { ok: true };
+  },
+  listProduct(state, a) {
+    const s = state.sector;
+    if (!P[a.id]) return { ok: false, message: 'Produit inconnu.' };
+    if (s.listed.includes(a.id)) return { ok: false, message: 'Déjà au catalogue.' };
+    if (s.listed.length >= slots(state)) return { ok: false, message: 'Catalogue plein : améliore ta boutique pour référencer plus de produits.' };
+    s.listed.push(a.id);
+    return { ok: true };
+  },
+  unlistProduct(state, a) {
+    const s = state.sector;
+    if (!s.listed.includes(a.id)) return { ok: false, message: 'Pas au catalogue.' };
+    s.listed = s.listed.filter((x) => x !== a.id);
+    return { ok: true };
+  },
+  orderStock(state, a) {
+    if (!P[a.id]) return { ok: false, message: 'Produit inconnu.' };
+    const q = Math.round(Number(a.qty));
+    if (!(q > 0 && q <= 5000)) return { ok: false, message: 'Quantité invalide.' };
+    const cost = Math.round(q * P[a.id].cost * 1.21);
+    if (state.cash - cost < -state.finance.overdraftLimit) return { ok: false, message: 'Trésorerie insuffisante pour cette commande.' };
+    placeOrder(state, a.id, q);
+    return { ok: true };
+  },
+  setReorder(state, a) {
+    state.sector.reorder = a.value === true || a.value === 'true' || a.value === 'on';
+    return { ok: true };
+  },
+  setCoverDays(state, a) {
+    const v = Number(a.value);
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.coverDays = clamp(Math.round(v), 7, 90);
+    return { ok: true };
+  },
+};
+return __exports;
+})();
+
+// ---- src/engine/sectors/artisan.js ----
+__m["src/engine/sectors/artisan.js"] = (function () {
+const __exports = {};
+__def(__exports, { "vans": () => vans, "mainRole": () => mainRole, "metier": () => metier, "init": () => init, "refPrice": () => refPrice, "priceIndex": () => priceIndex, "marketValue": () => marketValue, "workforce": () => workforce, "quality": () => quality, "backlogDays": () => backlogDays, "leadRate": () => leadRate, "daily": () => daily, "monthEnd": () => monthEnd, "eventOp": () => eventOp, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "actions": () => actions });
+// Secteur artisan : demandes → devis → planning des ouvriers → chantier → facture.
+// Camionnettes, matériel, déplacements, bouche-à-oreille, contrats d'entretien.
+
+const { ARTISAN: D } = __m["src/data/sectors/artisan.js"];
+const { FISCALITE } = __m["src/data/fiscalite.js"];
+const { dateOf, isWeekend } = __m["src/engine/calendar.js"];
+const { earn, invoice, spend } = __m["src/engine/ledger.js"];
+const { upgradeEffect, hasUpgrade } = __m["src/engine/upgrades.js"];
+const { modMult } = __m["src/engine/modifiers.js"];
+const { productivity, qualityOf, countRole } = __m["src/engine/systems/staff.js"];
+const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
+const { diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { log } = __m["src/engine/log.js"];
+const { clamp } = __m["src/engine/money.js"];
+
+const mainRole = 'ouvrier';
+
+function metier(state) {
+  return D.metiers[state.meta.metier] || D.metiers.plombier;
+}
+
+function init(state) {
+  if (!D.metiers[state.meta.metier]) state.meta.metier = 'plombier';
+  state.sector = {
+    rate: D.refRate,
+    margin: D.refMargin,
+    policy: 'capacite',
+    quotes: [], // devis en attente de réponse
+    jobs: [], // chantiers acceptés (file)
+    seq: 0,
+    wom: 0, // stock de bouche-à-oreille
+    contracts: 0,
+    today: { capacity: 0, used: 0, leads: 0 },
+    stats: { jobsDone: 0, quotes: 0, won: 0, lost: 0, malfacons: 0 },
+  };
+}
+
+function refPrice() {
+  return D.refRate;
+}
+
+function priceIndex(state) {
+  return (state.sector.rate / D.refRate) * (0.85 + 0.15 * ((1 + state.sector.margin) / (1 + D.refMargin)));
+}
+
+function marketValue(state) {
+  return D.marketLeads * diffOf(state).marketMult * 21 * 1.6 * D.hoursPerDay * D.refRate * 0.85;
+}
+
+function vans(state) {
+  return 1 + upgradeEffect(state, 'vans');
+}
+
+/** Jours-homme disponibles par jour ouvré. */
+function workforce(state) {
+  const f = state.staff.founder;
+  const workers = [];
+  if (f.active) workers.push(1 * (0.7 + 0.3 * f.energy / 100) * (0.6 + f.skill / 140));
+  for (const e of state.staff.employees) {
+    const r = D.roles[e.role];
+    if (r && r.speed) workers.push(r.speed * productivity(state, e));
+  }
+  workers.sort((a, b) => b - a);
+  const seatsOnRoad = vans(state) * 2;
+  let total = 0;
+  workers.forEach((w, i) => (total += i < seatsOnRoad ? w : w * 0.5));
+  const pm = countRole(state, 'planificateur') > 0 ? 1.05 : 1;
+  return total * D.billableRatio * upgradeEffect(state, 'speedMult') * pm * modMult(state, 'capacity') * prodMod(state);
+}
+
+function quality(state) {
+  let wq = 0;
+  let n = 0;
+  if (state.staff.founder.active) {
+    wq += 0.6 + state.staff.founder.skill / 125;
+    n++;
+  }
+  for (const e of state.staff.employees) {
+    if (D.roles[e.role] && D.roles[e.role].speed) {
+      wq += qualityOf(e);
+      n++;
+    }
+  }
+  const q = (n ? wq / n : 0.8) + upgradeEffect(state, 'quality');
+  return clamp(q * modMult(state, 'quality'), 0.3, 2);
+}
+
+function backlogDays(state) {
+  return state.sector.jobs.reduce((s, j) => s + Math.max(0, j.daysTotal - j.daysDone), 0);
+}
+
+function availableJobs(state) {
+  return metier(state).jobs.filter((j) => !j.requires || hasUpgrade(state, j.requires));
+}
+
+function jobValue(state, t, rate = state.sector.rate, margin = state.sector.margin) {
+  const labor = t.days * D.hoursPerDay * rate;
+  const mat = t.materials * modMult(state, 'materialCost') * (1 + margin);
+  return Math.round(labor + mat + (t.urgent ? D.urgentFee : 0));
+}
+
+function womFactor(state) {
+  return 1 + 0.35 * Math.log(1 + state.sector.wom / 8);
+}
+
+function leadRate(state) {
+  const d = dateOf(state.time.day);
+  const m = playerMarket(state, D, priceIndex(state) * D.refRate, D.refRate, 1);
+  const season = metier(state).seasonality[d.month];
+  const brand = upgradeEffect(state, 'leadsMult');
+  const wom = womFactor(state);
+  const lambda = D.marketLeads * diffOf(state).marketMult * season * m.eco * m.ev * m.share * brand * wom;
+  return { lambda, m, season, brand, wom };
+}
+
+function acceptProb(state, t, price) {
+  const ref = jobValue(state, t, D.refRate, D.refMargin);
+  const plan = Math.min(2, countRole(state, 'planificateur')) * D.roles.planificateur.accept;
+  let p = D.baseAccept * Math.pow(ref / price, 1.3) * (0.7 + state.company.reputation / 170) * (1 + plan + upgradeEffect(state, 'accept'));
+  if (t.urgent) p = Math.min(0.95, p * 1.3);
+  return clamp(p, 0.04, 0.95);
+}
+
+function newQuote(state, rng) {
+  const s = state.sector;
+  const d = dateOf(state.time.day);
+  const list = availableJobs(state);
+  const years = state.time.day / 360;
+  const t = rng.weighted(list, (j) => j.weight * ((j.season && j.season[d.month]) || 1) * (1 + (j.trend || 0) * years));
+  const price = jobValue(state, t);
+  s.seq += 1;
+  return {
+    id: s.seq,
+    type: t.id,
+    label: t.label,
+    price,
+    vat: rng.chance(t.renoShare) ? FISCALITE.tva.renovation : FISCALITE.tva.rates.normal,
+    decide: state.time.day + (t.urgent ? 0 : rng.int(2, 5)),
+    p: acceptProb(state, t, price),
+  };
+}
+
+function startJob(state, q) {
+  const t = metier(state).jobs.find((j) => j.id === q.type);
+  state.sector.jobs.push({
+    id: q.id, type: q.type, label: q.label, price: q.price, vat: q.vat, daysTotal: t.days, daysDone: 0,
+    materials: Math.round(t.materials * modMult(state, 'materialCost') * (1 - upgradeEffect(state, 'materialCut'))),
+    matPaid: false, payNow: !!t.payNow, urgent: !!t.urgent, payDelay: q.payDelay || D.paymentDays,
+  });
+  if (t.urgent) state.sector.jobs.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0));
+}
+
+function finishJob(state, j, rng) {
+  const s = state.sector;
+  s.jobs = s.jobs.filter((x) => x !== j);
+  if (j.payNow) earn(state, j.price, j.vat, 'chantiers');
+  else invoice(state, j.price, j.vat, 'chantiers', { dueIn: j.payDelay, defaultProb: D.defaultProb * modMult(state, 'defaultRisk'), lateProb: D.lateProb, label: j.label, rng });
+  const q = state.company.quality * rng.range(0.9, 1.1);
+  const score = clamp(50 + 80 * (q - 0.85), 0, 100);
+  rateCustomer(state, score, 0.08);
+  if (score > 65) s.wom += 1;
+  if (rng.chance(Math.max(0, 1.05 - q) * 0.25)) {
+    s.stats.malfacons++;
+    changeReputation(state, -1.5);
+    s.wom = Math.max(0, s.wom - 3);
+    log(state, 'bad', `Malfaçon signalée sur « ${j.label} » : il faudra repasser.`);
+    s.jobs.push({ ...j, id: ++s.seq, label: `Reprise : ${j.label}`, price: 0, daysTotal: j.daysTotal * 0.25, daysDone: 0, materials: 0, matPaid: true, payNow: true });
+  }
+  if (j.type === 'entretien' && upgradeEffect(state, 'contracts') > 0 && rng.chance(D.maintenanceContract.signProb)) s.contracts++;
+  s.stats.jobsDone++;
+  state.stats.unitsSold = (state.stats.unitsSold || 0) + 1;
+}
+
+function daily(state, rng) {
+  const s = state.sector;
+  const day = state.time.day;
+  const weekend = isWeekend(day);
+  state.company.quality = quality(state);
+  const lr = leadRate(state);
+  // Nouvelles demandes → devis
+  const n = rng.poisson(lr.lambda * (weekend ? D.weekendLeads : 1));
+  const cap = workforce(state);
+  for (let i = 0; i < n; i++) {
+    const q = newQuote(state, rng);
+    if (weekend && !metier(state).jobs.find((j) => j.id === q.type).urgent) continue;
+    if (s.policy === 'capacite' && backlogDays(state) > Math.max(1, cap) * 25 && !metier(state).jobs.find((j) => j.id === q.type).urgent) {
+      s.stats.lost++;
+      continue;
+    }
+    s.quotes.push(q);
+    s.stats.quotes++;
+  }
+  // Réponses des clients
+  const due = s.quotes.filter((q) => q.decide <= day);
+  s.quotes = s.quotes.filter((q) => q.decide > day);
+  for (const q of due) {
+    if (rng.chance(q.p)) {
+      startJob(state, q);
+      s.stats.won++;
+    } else s.stats.lost++;
+  }
+  // Chantiers (jours ouvrés ; dépannages aussi le week-end, à capacité réduite)
+  let pool = weekend ? cap * 0.25 : cap;
+  const total = pool;
+  for (const j of [...s.jobs]) {
+    if (pool <= 0) break;
+    if (weekend && !j.urgent) continue;
+    if (!j.matPaid) {
+      if (j.materials > 0) spend(state, j.materials, 0.21, 'materiel');
+      j.matPaid = true;
+    }
+    const w = Math.min(pool, j.daysTotal - j.daysDone, Math.max(1, j.daysTotal * 0.5) + 1);
+    j.daysDone += w;
+    pool -= w;
+    spend(state, Math.round(w * D.travelPerDay * (1 - Math.min(0.5, upgradeEffect(state, 'travelCut')))), 0.21, 'deplacements');
+    if (j.daysDone >= j.daysTotal - 1e-6) finishJob(state, j, rng);
+  }
+  const used = total - pool;
+  s.today = { capacity: total, used, leads: n };
+  state.company.capacityUse = total > 0 ? used / total : 1;
+  const backlog = backlogDays(state);
+  state.staff.lastWorkload = cap > 0 ? Math.min(2, backlog / (cap * 21)) : 0;
+  state.company.demandPerDay = lr.lambda;
+  state.company.why = [
+    ...baseWhy(lr.m, 'Ton taux horaire et ta marge sur matériel face aux autres artisans.'),
+    { label: 'Saison', value: lr.season, hint: metier(state).id === 'plombier' ? 'L’hiver, les chaudières tombent en panne.' : 'Activité assez régulière.' },
+    { label: 'Bouche-à-oreille', value: lr.wom, hint: 'Chaque chantier réussi te ramène des clients.' },
+    { label: 'Visibilité', value: lr.brand, hint: 'Site, avis Google, lettrage des camionnettes.' },
+  ];
+  state.company.bottleneck = backlog > cap * 25 ? 'capacite' : lr.lambda < 0.4 ? 'demande' : null;
+}
+
+function monthEnd(state, rng) {
+  const s = state.sector;
+  s.wom *= 1 - D.womDecayMonthly;
+  if (s.contracts > 0) {
+    s.contracts = Math.max(0, s.contracts - Math.round(s.contracts * D.maintenanceContract.churnMonthly * rng.range(0.5, 1.5)));
+    invoice(state, s.contracts * D.maintenanceContract.fee, FISCALITE.tva.renovation, 'chantiers', { dueIn: 10, defaultProb: 0.01, label: 'Contrats d’entretien', rng });
+  }
+}
+
+function eventOp(state, e) {
+  const s = state.sector;
+  if (e.op === 'coldwave' && metier(state).id === 'plombier') {
+    state.modifiers.push({ key: 'demand', mult: 1.4, add: 0, until: state.time.day + 10, label: 'Chaudières en panne', source: 'Vague de froid' });
+  }
+  if (e.op === 'bigJob') {
+    s.seq += 1;
+    const price = Math.round(e.days * D.hoursPerDay * s.rate * (e.valueMult || 1) + e.days * 30_000);
+    s.jobs.push({ id: s.seq, type: 'gros', label: 'Gros chantier (promoteur)', price, vat: FISCALITE.tva.rates.normal, daysTotal: e.days, daysDone: 0, materials: e.days * 22_000, matPaid: false, payNow: false, urgent: false, payDelay: e.payDelay || 60 });
+  }
+}
+
+function kpis(state) {
+  const s = state.sector;
+  const rate = s.stats.quotes ? s.stats.won / Math.max(1, s.stats.won + s.stats.lost) : 0;
+  return [
+    { label: 'Taux horaire', value: s.rate, fmt: 'eur', suffix: '/h' },
+    { label: 'Équipe (j-homme/jour)', value: workforce(state), fmt: 'num1' },
+    { label: 'Carnet (jours-homme)', value: backlogDays(state), fmt: 'num1' },
+    { label: 'Devis acceptés', value: rate, fmt: 'pct' },
+    { label: 'Chantiers réalisés', value: s.stats.jobsDone, fmt: 'int' },
+    { label: 'Contrats d’entretien', value: s.contracts, fmt: 'int' },
+  ];
+}
+
+function sceneInfo(state) {
+  return { activity: state.company.capacityUse || 0, customers: Math.min(4, state.sector.quotes.length), vans: vans(state), jobs: state.sector.jobs.length };
+}
+
+const actions = {
+  setRate(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.rate = clamp(v, D.minRate, D.maxRate);
+    return { ok: true };
+  },
+  setMargin(state, a) {
+    const v = Number(a.value) / 100;
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.margin = clamp(v, 0, 0.6);
+    return { ok: true };
+  },
+  setPolicy(state, a) {
+    if (!['capacite', 'tout'].includes(a.value)) return { ok: false, message: 'Politique inconnue.' };
+    state.sector.policy = a.value;
+    return { ok: true };
+  },
+};
+return __exports;
+})();
+
+// ---- src/engine/sectors/soutien.js ----
+__m["src/engine/sectors/soutien.js"] = (function () {
+const __exports = {};
+__def(__exports, { "mainRole": () => mainRole, "init": () => init, "refPrice": () => refPrice, "priceIndex": () => priceIndex, "marketValue": () => marketValue, "capacity": () => capacity, "expectedSuccess": () => expectedSuccess, "quality": () => quality, "enrollmentRate": () => enrollmentRate, "daily": () => daily, "monthEnd": () => monthEnd, "eventOp": () => eventOp, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "actions": () => actions });
+// Secteur soutien scolaire : inscriptions saisonnières, abonnements mensuels,
+// capacité (profs × groupes × taille), sessions d'examens qui font la réputation.
+
+const { SOUTIEN: D } = __m["src/data/sectors/soutien.js"];
+const { dateOf, DAYS_PER_MONTH } = __m["src/engine/calendar.js"];
+const { earn, spend } = __m["src/engine/ledger.js"];
+const { upgradeEffect } = __m["src/engine/upgrades.js"];
+const { modMult } = __m["src/engine/modifiers.js"];
+const { productivity, countRole } = __m["src/engine/systems/staff.js"];
+const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
+const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { log } = __m["src/engine/log.js"];
+const { clamp } = __m["src/engine/money.js"];
+
+const mainRole = 'enseignant';
+
+function init(state) {
+  state.sector = {
+    price: D.refPrice,
+    groupSize: D.groupSize.default,
+    students: 8,
+    discounted: 0, // élèves à tarif réduit (partenariat école)
+    discountMult: 1,
+    waitlist: 0,
+    lastSuccess: null,
+    results: [],
+    stageStudents: 0,
+    today: { joined: 0, capacity: 0 },
+    month: { joined: 0, left: 0, turnedAway: 0 },
+    stats: { maxStudents: 8, sessions: 0, bestSuccess: 0 },
+  };
+}
+
+function refPrice() {
+  return D.refPrice;
+}
+
+function priceIndex(state) {
+  return state.sector.price / D.refPrice;
+}
+
+function marketMult(state) {
+  return upgradeEffect(state, 'marketMult') || 1;
+}
+
+function marketValue(state) {
+  return D.marketPool * 4 * marketMult(state) * diffOf(state).marketMult * htFromTtc(state, D.refPrice, D.vatRate);
+}
+
+/** Compétence moyenne des enseignants (fondateur inclus), pondérée par leurs groupes. */
+function teachingSkill(state) {
+  let w = 0;
+  let sk = 0;
+  if (state.staff.founder.active) {
+    w += D.founderSlots;
+    sk += state.staff.founder.skill * D.founderSlots;
+  }
+  for (const e of state.staff.employees) {
+    const r = D.roles[e.role];
+    if (r && r.teach) {
+      const slots = r.slots * productivity(state, e);
+      w += slots;
+      sk += e.skill * slots;
+    }
+  }
+  return w ? sk / w : 40;
+}
+
+/** Nombre d'élèves que l'équipe et les locaux peuvent accueillir. */
+function capacity(state) {
+  const s = state.sector;
+  let slots = state.staff.founder.active ? D.founderSlots * (0.7 + 0.3 * state.staff.founder.energy / 100) : 0;
+  for (const e of state.staff.employees) {
+    const r = D.roles[e.role];
+    if (r && r.teach) slots += r.slots * productivity(state, e);
+  }
+  slots *= upgradeEffect(state, 'slotsMult') * prodMod(state);
+  const teach = Math.floor(slots * s.groupSize);
+  const seats = Math.floor((D.baseSeats + upgradeEffect(state, 'seats')) * modMult(state, 'capacity'));
+  return { teach, seats, total: Math.min(teach, seats) };
+}
+
+/** Taux de réussite attendu aux examens. */
+function expectedSuccess(state) {
+  const s = state.sector;
+  const skill = teachingSkill(state);
+  const coord = countRole(state, 'coordinateur') > 0 ? D.roles.coordinateur.success : 0;
+  const group = (D.groupSize.default - s.groupSize) * 0.018;
+  return clamp(0.52 + 0.36 * ((skill - 50) / 50) + group + coord + upgradeEffect(state, 'success'), 0.25, 0.97);
+}
+
+function quality(state) {
+  return clamp((0.6 + expectedSuccess(state) * 0.55) * modMult(state, 'quality'), 0.3, 2);
+}
+
+function examBoost(state, month) {
+  return month === 11 || month === 4 ? 1 + upgradeEffect(state, 'examBoost') : 1;
+}
+
+function enrollmentRate(state) {
+  const d = dateOf(state.time.day);
+  const extra = 1 + upgradeEffect(state, 'attraction') + (upgradeEffect(state, 'resultsVisible') && state.sector.lastSuccess > 0.8 ? 0.1 : 0);
+  const m = playerMarket(state, D, state.sector.price, D.refPrice, extra);
+  const season = D.seasonality[d.month] * examBoost(state, d.month);
+  const perDay = (D.marketPool * marketMult(state) * diffOf(state).marketMult * season * m.eco * m.ev * m.share * modMult(state, 'enrollment')) / DAYS_PER_MONTH;
+  return { perDay, m, season, location: marketMult(state) };
+}
+
+function daily(state, rng) {
+  const s = state.sector;
+  state.company.quality = quality(state);
+  const er = enrollmentRate(state);
+  const cap = capacity(state);
+  const arrivals = rng.poisson(er.perDay);
+  const room = Math.max(0, cap.total - s.students);
+  const joined = Math.min(arrivals, room);
+  s.students += joined;
+  s.month.joined += joined;
+  s.month.turnedAway += arrivals - joined;
+  s.stats.maxStudents = Math.max(s.stats.maxStudents, s.students);
+  s.today = { joined, capacity: cap.total, arrivals };
+  // Satisfaction des familles : rapport qualité/prix et taille des groupes
+  const score = 48 + 60 * (expectedSuccess(state) - 0.65) + 25 * (D.refPrice / s.price - 1) + 2 * (D.groupSize.default - s.groupSize);
+  rateCustomer(state, clamp(score, 0, 100), 0.01);
+  if (arrivals > joined) rateCustomer(state, 35, 0.01);
+  // Fournitures
+  spend(state, Math.round((s.students * D.materialPerStudent) / DAYS_PER_MONTH), 0.21, 'materiel');
+  state.company.capacityUse = cap.total > 0 ? s.students / cap.total : 1;
+  state.staff.lastWorkload = cap.teach > 0 ? s.students / cap.teach : 0;
+  state.company.demandPerDay = er.perDay;
+  state.company.why = [
+    ...baseWhy(er.m, `Abonnement ${(s.price / 100).toFixed(0)} €/mois (marché 175 €).`),
+    { label: 'Calendrier scolaire', value: er.season, hint: 'Rentrée et avant-examens : affluence. Été : désert.' },
+    { label: 'Implantations', value: er.location, hint: 'Antenne, cours hybrides.' },
+  ];
+  state.company.bottleneck = arrivals > joined ? (cap.teach < cap.seats ? 'personnel' : 'places') : er.m.share < 0.12 ? 'demande' : null;
+}
+
+function monthEnd(state, rng) {
+  const s = state.sector;
+  const d = dateOf(state.time.day);
+  // Facturation des abonnements (prélevés en début de mois suivant → encaissés ici)
+  const full = Math.max(0, s.students - s.discounted);
+  const ttc = full * s.price + s.discounted * Math.round(s.price * s.discountMult);
+  if (ttc > 0) earn(state, htFromTtc(state, ttc, D.vatRate), D.vatRate, 'abonnements');
+  // Stages d'été
+  if (upgradeEffect(state, 'stages') > 0 && D.stage.month.includes(d.month)) {
+    const m = playerMarket(state, D, s.price, D.refPrice, 1);
+    const n = Math.min(capacity(state).total, rng.poisson(D.stage.pool * m.share * marketMult(state) * diffOf(state).marketMult * 2));
+    if (n > 0) {
+      earn(state, htFromTtc(state, n * D.stage.price, D.vatRate), D.vatRate, 'stages');
+      s.stageStudents += n;
+      log(state, 'good', `Stages d'été : ${n} participants.`);
+    }
+  }
+  // Sessions d'examens → résultats → réputation
+  if (D.examMonths.includes(d.month) && s.students > 0) {
+    const success = clamp(expectedSuccess(state) + rng.normal(0, 0.04), 0.2, 0.99);
+    s.lastSuccess = success;
+    s.results.push({ day: state.time.day, success, students: s.students });
+    if (s.results.length > 30) s.results.shift();
+    s.stats.sessions++;
+    s.stats.bestSuccess = Math.max(s.stats.bestSuccess, success);
+    const delta = (success - 0.72) * 45;
+    changeReputation(state, delta);
+    rateCustomer(state, clamp(success * 100, 0, 100), 0.3);
+    log(state, delta >= 0 ? 'good' : 'bad', `Session d'examens : ${Math.round(success * 100)} % de réussite (réputation ${delta >= 0 ? '+' : ''}${delta.toFixed(1).replace('.', ',')}).`, true);
+  }
+  // Désinscriptions
+  const coord = countRole(state, 'coordinateur') > 0 ? 0.8 : 1;
+  let churn = D.churnMonthly * upgradeEffect(state, 'churnMult') * coord;
+  if (s.lastSuccess != null && s.lastSuccess < 0.6) churn *= 1.5;
+  if (d.month === 5) churn = D.yearEndChurn; // fin de l'année scolaire
+  const left = Math.min(s.students, Math.round(s.students * churn + rng.normal(0, 0.5)));
+  s.students -= Math.max(0, left);
+  s.discounted = Math.min(s.discounted, s.students);
+  s.month = { joined: 0, left: 0, turnedAway: 0 };
+}
+
+function eventOp(state, e) {
+  const s = state.sector;
+  if (e.op === 'addStudents') {
+    const room = Math.max(0, capacity(state).total - s.students);
+    const n = Math.min(e.n, room);
+    s.students += n;
+    s.discounted += n;
+    s.discountMult = e.priceMult;
+    if (n < e.n) log(state, 'info', `Faute de place, seuls ${n} élèves du partenariat ont pu être accueillis.`);
+  }
+}
+
+function kpis(state) {
+  const s = state.sector;
+  const cap = capacity(state);
+  return [
+    { label: 'Abonnement TTC', value: s.price, fmt: 'eur', suffix: '/mois' },
+    { label: 'Élèves inscrits', value: s.students, fmt: 'int' },
+    { label: 'Capacité', value: cap.total, fmt: 'int' },
+    { label: 'Taille des groupes', value: s.groupSize, fmt: 'int' },
+    { label: 'Réussite attendue', value: expectedSuccess(state), fmt: 'pct' },
+    { label: 'Dernière session', value: s.lastSuccess ?? NaN, fmt: 'pct' },
+  ];
+}
+
+function sceneInfo(state) {
+  const s = state.sector;
+  return { activity: Math.min(1, s.students / Math.max(1, capacity(state).total)), customers: Math.min(4, s.today.joined * 2 + 1), students: s.students };
+}
+
+const actions = {
+  setPrice(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.price = clamp(v, D.minPrice, D.maxPrice);
+    return { ok: true };
+  },
+  setGroupSize(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
+    state.sector.groupSize = clamp(v, D.groupSize.min, D.groupSize.max);
+    return { ok: true };
+  },
+};
+return __exports;
+})();
+
 // ---- src/engine/sectors/index.js ----
 __m["src/engine/sectors/index.js"] = (function () {
 const __exports = {};
@@ -2287,10 +3985,12 @@ __def(__exports, { "SECTOR_MODULES": () => SECTOR_MODULES, "sectorModule": () =>
 // Registre de la LOGIQUE des secteurs (modules avec init/daily/monthEnd/actions…).
 
 const agence = __m["src/engine/sectors/agence.js"];
+const restaurant = __m["src/engine/sectors/restaurant.js"];
+const ecommerce = __m["src/engine/sectors/ecommerce.js"];
+const artisan = __m["src/engine/sectors/artisan.js"];
+const soutien = __m["src/engine/sectors/soutien.js"];
 
-const SECTOR_MODULES = {
-  agence,
-};
+const SECTOR_MODULES = { agence, restaurant, ecommerce, artisan, soutien };
 
 function sectorModule(state) {
   const m = SECTOR_MODULES[state.meta.sector];
@@ -4186,7 +5886,7 @@ function transferToOwner(state, amount, reason = 'draw') {
 function monthEnd(state) {
   const p = state.personal;
   // 1) Prélèvement / rémunération du mois (dans la limite de ce qui est disponible).
-  const available = Math.max(0, state.cash + state.finance.overdraftLimit * 0.5);
+  const available = Math.max(0, Math.floor(state.cash + state.finance.overdraftLimit * 0.5));
   const draw = Math.min(p.draw, available);
   transferToOwner(state, draw);
   if (draw < p.draw) log(state, 'bad', 'Trésorerie trop juste : ta rémunération du mois a été réduite.');
@@ -4655,6 +6355,7 @@ function daily(state) {
 function goBankrupt(state) {
   state.status = 'bankrupt';
   state.endgame.bankruptDay = state.time.day;
+  if (state.events) state.events.pending = []; // plus aucune décision possible
   if (state.meta.legal === 'independant') {
     // Les créanciers saisissent le patrimoine personnel (simplifié).
     state.endgame.seized = Math.max(0, state.personal.cash);
@@ -5367,8 +7068,8 @@ function eurInput(id, cents, action, { min = 0, max = 1e9, step = 1, label = '' 
 }
 
 /** Curseur relié à une action (valeur brute ou multipliée par scale). */
-function rangeInput(id, value, action, { min = 0, max = 100, step = 1, scale = 1, label = '', display = '' } = {}) {
-  return `<label class="field range"><span>${label} <output for="${esc(id)}">${display}</output></span><input type="range" id="${esc(id)}" min="${min}" max="${max}" step="${step}" value="${value / scale}" data-input='${esc(JSON.stringify(action))}' data-scale="${scale}"></label>`;
+function rangeInput(id, value, action, { min = 0, max = 100, step = 1, scale = 1, label = '', display = '', fmt = '' } = {}) {
+  return `<label class="field range"><span>${label} <output for="${esc(id)}">${display}</output></span><input type="range" id="${esc(id)}" min="${min}" max="${max}" step="${step}" value="${value / scale}" data-input='${esc(JSON.stringify(action))}' data-scale="${scale}" data-fmt="${esc(fmt)}"></label>`;
 }
 
 function selectInput(id, value, options, action, { label = '' } = {}) {
@@ -5810,6 +7511,46 @@ const SPRITES = {
   poster: ['llllllllll', 'lyyyyyyyyl', 'lyRRyyGGyl', 'lyRRyyGGyl', 'lyyyyyyyyl', 'lyccccccyl', 'llllllllll'],
   coffee: ['.dddd.', '.dlld.', '.dRRd.', '.dddd.', 'mmmmmm', 'mllllm', 'mllllm', 'mmmmmm'],
   server: ['dddddd', 'dGkkkd', 'dddddd', 'dGkkkd', 'dddddd', 'dRkkkd', 'dddddd', 'dddddd'],
+  // Friterie
+  fryer: ['llllllllll', 'lkFFkkFFkl', 'lkFkFFkFkl', 'llllllllll', 'lmmmmmmmml', 'lmRmmmmGml', 'lmmmmmmmml', 'lmmmmmmmml'],
+  counter: ['wwwwwwwwwwwwwwwwwwwwwwwwwwww', 'RRRRRRRRRRRRRRRRRRRRRRRRRRRR', 'rwwrrwwrrwwrrwwrrwwrrwwrrwwr', 'rwwrrwwrrwwrrwwrrwwrrwwrrwwr', 'RRRRRRRRRRRRRRRRRRRRRRRRRRRR', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr'],
+  cone: ['.y.y.', 'FyFyF', 'yFyFy', '.www.', '.wRw.', '..w..'],
+  menu: ['kkkkkkkkkkkk', 'kwwwwwwwwwwk', 'kwRRwwyyywwk', 'kwwwwwwwwwwk', 'kwyyywwRRwwk', 'kwwwwwwwwwwk', 'kkkkkkkkkkkk'],
+  parasol: ['....RRRRRR....', '..RRwwRRwwRR..', '.RwwRRwwRRwwR.', '......dd......', '......dd......', '......dd......', '......dd......', '......dd......', '....dddddd....'],
+  table2: ['WWWWWWWW', 'BBBBBBBB', '.B....B.', '.B....B.'],
+  // E-commerce
+  shelf: ['BBBBBBBBBBBBBB', 'B.ooo..ccc...B', 'BBBBBBBBBBBBBB', 'B..yyy.RR.ggGB', 'BBBBBBBBBBBBBB', 'B.WWW..WWW...B', 'BBBBBBBBBBBBBB', 'B............B', 'B............B'],
+  box: ['WWWWWW', 'WBBBBW', 'WWyyWW', 'WWWWWW', 'WWWWWW'],
+  laptop: ['.dddddd.', '.dCCCCd.', '.dCCCCd.', 'llllllll'],
+  // Artisan
+  van: [
+    '....wwwwwwwwwwwwwwwwww....',
+    '...wwwwwwwwwwwwwwwwwwww...',
+    '..wwccccwwwwwwwwwwwwwwww..',
+    '.wwwccccwwwwwwwwwwwwwwwww.',
+    'wwwwwwwwwwbbbbbbbbbbbwwwww',
+    'wwwwwwwwwwbbbbbbbbbbbwwwww',
+    'wwwwwwwwwwwwwwwwwwwwwwwwww',
+    'mmmmmmmmmmmmmmmmmmmmmmmmmm',
+    '..kkkk............kkkk....',
+    '..kllk............kllk....',
+  ],
+  toolbox: ['..dddd..', '.d....d.', 'RRRRRRRR', 'RyRRRRyR', 'RRRRRRRR', 'rrrrrrrr'],
+  pipe: ['llllllllllll', 'mmmmmmmmmmmm', '..........ll', '..........mm', '..........ll', '..........mm'],
+  // Soutien scolaire
+  board: [
+    'BBBBBBBBBBBBBBBBBBBBBBBB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTwwTTwTwTTTwwwTTTTTTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTwTwwTTwwwwTTwTTTwwTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTTwwwTT=TTwwTTTTTTTTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BBBBBBBBBBBBBBBBBBBBBBBB',
+  ],
+  schoolDesk: ['WWWWWWWWWW', 'BBBBBBBBBB', '.B......B.', '.B......B.', '.B......B.'],
+  books: ['RbGyo', 'RbGyo', 'RbGyo', 'BBBBB'],
 };
 
 /** Dessine un sprite. map = remplacements de lettres (ex. { x: 'R' }). */
@@ -5940,7 +7681,244 @@ const agence = {
   },
 };
 
-const DECOR = { agence };
+// --- Aide commune ------------------------------------------------------------------
+
+function staffIds(state) {
+  const ids = [];
+  if (state.staff.founder.active) ids.push('founder');
+  for (const e of state.staff.employees) ids.push(e.id);
+  return ids;
+}
+
+const FOUNDER_LOOK = { x: 'R', y: 'n', z: 'h', q: 's' };
+
+/** Dessine les employés debout à des positions données (petite animation de travail). */
+function drawStanding(ctx, state, positions, t, reduced, apron = null) {
+  staffIds(state).forEach((id, i) => {
+    const p = positions[i];
+    if (!p) return;
+    const lk = id === 'founder' ? { ...FOUNDER_LOOK } : look(id);
+    if (apron) lk.x = apron;
+    const act = state.company.capacityUse || 0;
+    const frame = !reduced && act > 0.15 && Math.floor(t * 5 + i) % 4 === 0 ? 'person1' : 'person0';
+    drawSprite(ctx, frame, p.x, p.y - 11 + (frame === 'person1' ? 0 : 0), lk, i % 2 === 1);
+  });
+}
+
+// --- Friterie -------------------------------------------------------------------------
+
+const restaurant = {
+  wall: 'y',
+  floor1: 'w',
+  floor2: 'l',
+  signColor: 'r',
+  doorX: 182,
+  doorY: FY + 34,
+  layoutKey: (s) => `${s.staff.employees.length}|${s.staff.founder.active}`,
+  background(b, state) {
+    // carrelage mural
+    for (let y = 4; y < FY - 2; y += 6) for (let x = 64; x < 176; x += 6) rect(b, x, y, 5, 5, (x + y) % 12 ? 'w' : 'F');
+    drawSprite(b, 'menu', 70, 18);
+    drawSprite(b, 'menu', 86, 18);
+    drawSprite(b, 'fryer', 104, FY - 8);
+    drawSprite(b, 'fryer', 116, FY - 8);
+    if (hasUpgrade(state, 'friteuse')) drawSprite(b, 'fryer', 128, FY - 8);
+    if (hasUpgrade(state, 'chambre_froide')) rect(b, 142, FY - 22, 14, 22, 'l');
+    drawSprite(b, 'counter', 64, FY + 8);
+    drawSprite(b, 'counter', 92, FY + 8);
+    if (hasUpgrade(state, 'salle')) {
+      drawSprite(b, 'table2', 12, FY + 30);
+      drawSprite(b, 'table2', 30, FY + 36);
+    }
+    if (hasUpgrade(state, 'terrasse')) drawSprite(b, 'parasol', 150, FY + 22);
+    if (hasUpgrade(state, 'enseigne')) rect(b, 64, 2, 2, 12, 'R');
+    drawSprite(b, 'plant', 2, FY - 6);
+  },
+  animate(ctx, state, t, reduced) {
+    const pos = [];
+    for (let i = 0; i < 8; i++) pos.push({ x: 70 + i * 13, y: FY + 6 });
+    drawStanding(ctx, state, pos, t, reduced, 'w');
+    // vapeur des friteuses
+    if (!reduced && (state.company.capacityUse || 0) > 0.1) {
+      for (let i = 0; i < 3; i++) {
+        const yy = FY - 12 - ((t * 10 + i * 5) % 14);
+        rect(ctx, 108 + i * 6, Math.round(yy), 1, 2, 'w');
+      }
+    }
+    const t0 = state.sector.today;
+    if (t0 && t0.served > 0) drawSprite(ctx, 'cone', 96, FY + 2);
+  },
+  target(state, i) {
+    return { x: 76 + (i % 6) * 9, y: FY + 32 + (i % 2) * 6 };
+  },
+  coinSpot() {
+    return { x: 96, y: FY + 4 };
+  },
+  icon(ctx) {
+    rect(ctx, 8, 4, 16, 6, 'y');
+    for (let i = 0; i < 6; i++) rect(ctx, 9 + i * 2, 2 + (i % 2), 1, 8, 'F');
+    rect(ctx, 6, 10, 20, 4, 'w');
+    rect(ctx, 8, 14, 16, 14, 'R');
+    rect(ctx, 10, 16, 12, 2, 'w');
+    rect(ctx, 10, 20, 12, 2, 'w');
+  },
+};
+
+// --- E-commerce ---------------------------------------------------------------------
+
+const ecommerce = {
+  wall: 'm',
+  floor1: 'd',
+  floor2: 'm',
+  signColor: 'G',
+  doorX: 182,
+  doorY: FY + 34,
+  layoutKey: (s) => `${s.staff.employees.length}|${s.staff.founder.active}|${Math.min(6, Math.round(Object.values(s.sector.stock).reduce((a, b) => a + b, 0) / 60))}`,
+  background(b, state) {
+    const big = hasUpgrade(state, 'entrepot');
+    const shelves = big ? 5 : hasUpgrade(state, 'garage') ? 3 : 2;
+    for (let i = 0; i < shelves; i++) drawSprite(b, 'shelf', 66 + i * 18, FY - 9);
+    const stock = Object.values(state.sector.stock).reduce((a, c) => a + c, 0);
+    const boxes = Math.min(18, Math.round(stock / 20));
+    for (let i = 0; i < boxes; i++) drawSprite(b, 'box', 66 + (i % 9) * 7, FY + 34 - Math.floor(i / 9) * 5);
+    drawSprite(b, 'table', 12, FY + 18);
+    drawSprite(b, 'laptop', 16, FY + 14);
+    if (hasUpgrade(state, 'logistique_3pl')) drawSprite(b, 'van', 150, FY + 20, { b: 'G' });
+  },
+  animate(ctx, state, t, reduced) {
+    const pos = [{ x: 22, y: FY + 18 }];
+    for (let i = 0; i < 10; i++) pos.push({ x: 70 + (i % 6) * 15, y: FY + 22 + Math.floor(i / 6) * 14 });
+    drawStanding(ctx, state, pos, t, reduced);
+    // colis qui partent
+    const n = state.sector.today.shipped || 0;
+    if (!reduced && n > 0) {
+      const k = Math.min(4, Math.ceil(n / 10));
+      for (let i = 0; i < k; i++) {
+        const x = 120 + (((t * 25) + i * 18) % 60);
+        drawSprite(ctx, 'box', Math.round(x), FY + 40);
+      }
+    }
+  },
+  target(state, i) {
+    return { x: 150 + (i % 3) * 6, y: FY + 34 };
+  },
+  coinSpot() {
+    return { x: 24, y: FY + 8 };
+  },
+  icon(ctx) {
+    rect(ctx, 4, 10, 24, 18, 'W');
+    rect(ctx, 4, 10, 24, 4, 'B');
+    rect(ctx, 14, 10, 4, 18, 'y');
+    rect(ctx, 22, 4, 8, 6, 'G');
+    rect(ctx, 24, 2, 4, 2, 'G');
+  },
+};
+
+// --- Artisan -------------------------------------------------------------------------
+
+const artisan = {
+  wall: 'W',
+  floor1: 'm',
+  floor2: 'd',
+  signColor: 'b',
+  doorX: 182,
+  doorY: FY + 34,
+  layoutKey: (s) => `${s.staff.employees.length}|${s.staff.founder.active}`,
+  background(b, state) {
+    // établi et outils au mur
+    rect(b, 66, 26, 60, 3, 'B');
+    for (let i = 0; i < 7; i++) rect(b, 70 + i * 8, 18, 2, 8, i % 2 ? 'l' : 'm');
+    drawSprite(b, 'pipe', 130, 20);
+    drawSprite(b, 'toolbox', 70, FY - 6);
+    drawSprite(b, 'table', 80, FY + 6);
+    const vans = 1 + (hasUpgrade(state, 'camionnette2') ? 1 : 0) + (hasUpgrade(state, 'camionnette3') ? 2 : 0);
+    for (let i = 0; i < Math.min(vans, 3); i++) drawSprite(b, 'van', 8 + i * 30, FY + 30, hasUpgrade(state, 'lettrage') ? { b: 'R' } : null);
+    drawSprite(b, 'plant', 2, FY - 6);
+  },
+  animate(ctx, state, t, reduced) {
+    // les ouvriers sont « sur chantier » quand ils travaillent : on n'en montre que quelques-uns à l'atelier
+    const act = state.company.capacityUse || 0;
+    const pos = [{ x: 90, y: FY + 6 }, { x: 108, y: FY + 6 }, { x: 126, y: FY + 18 }, { x: 140, y: FY + 18 }];
+    const ids = staffIds(state);
+    const inShop = Math.max(1, Math.round(ids.length * (1 - act * 0.7)));
+    ids.slice(0, Math.min(inShop, pos.length)).forEach((id, i) => {
+      const lk = id === 'founder' ? { ...FOUNDER_LOOK, x: 'b' } : { ...look(id), x: 'b' };
+      const frame = !reduced && act > 0.15 && Math.floor(t * 5 + i) % 4 === 0 ? 'person1' : 'person0';
+      drawSprite(ctx, frame, pos[i].x, pos[i].y - 11, lk);
+    });
+    // camionnette qui part / revient
+    if (!reduced && act > 0.3) {
+      const x = 190 - ((t * 20) % 260);
+      drawSprite(ctx, 'van', Math.round(x), FY + 44, hasUpgrade(state, 'lettrage') ? { b: 'R' } : null);
+    }
+  },
+  target(state, i) {
+    return { x: 120 + (i % 3) * 8, y: FY + 34 };
+  },
+  coinSpot() {
+    return { x: 30, y: FY + 26 };
+  },
+  icon(ctx) {
+    rect(ctx, 6, 22, 20, 6, 'm');
+    rect(ctx, 14, 6, 4, 18, 'l');
+    rect(ctx, 10, 4, 12, 4, 'l');
+    rect(ctx, 8, 2, 4, 4, 'l');
+    rect(ctx, 20, 2, 4, 4, 'l');
+    rect(ctx, 22, 20, 6, 8, 'R');
+  },
+};
+
+// --- Soutien scolaire -------------------------------------------------------------------
+
+const soutien = {
+  wall: 'G',
+  floor1: 'W',
+  floor2: 'B',
+  signColor: 'p',
+  doorX: 182,
+  doorY: FY + 34,
+  layoutKey: (s) => `${s.staff.employees.length}|${s.staff.founder.active}|${Math.min(12, Math.round(s.sector.students / 6))}`,
+  background(b, state) {
+    drawSprite(b, 'board', 70, 16);
+    if (hasUpgrade(state, 'tableaux')) rect(b, 96, 18, 22, 12, 'C');
+    drawSprite(b, 'books', 150, FY - 4);
+    drawSprite(b, 'books', 156, FY - 4);
+    const desks = Math.min(12, Math.max(2, Math.round(state.sector.students / 6)));
+    for (let i = 0; i < desks; i++) drawSprite(b, 'schoolDesk', 66 + (i % 6) * 18, FY + 14 + Math.floor(i / 6) * 16);
+    drawSprite(b, 'plant', 2, FY - 6);
+  },
+  animate(ctx, state, t, reduced) {
+    // élèves assis
+    const desks = Math.min(12, Math.max(2, Math.round(state.sector.students / 6)));
+    const seated = Math.min(desks * 2, Math.ceil(state.sector.students / 3));
+    for (let i = 0; i < seated; i++) {
+      const d = i % desks;
+      const x = 67 + (d % 6) * 18 + (i >= desks ? 5 : 0);
+      const y = FY + 14 + Math.floor(d / 6) * 16;
+      const bob = !reduced && Math.floor(t * 2 + i) % 7 === 0 ? 1 : 0;
+      drawSprite(ctx, 'sitting', x, y - 6 + bob, look(`el${i}`));
+    }
+    // profs au tableau
+    const pos = [{ x: 64, y: FY + 6 }, { x: 122, y: FY + 6 }, { x: 140, y: FY + 6 }, { x: 40, y: FY + 20 }];
+    drawStanding(ctx, state, pos, t, reduced);
+  },
+  target(state, i) {
+    return { x: 30 + (i % 3) * 8, y: FY + 36 };
+  },
+  coinSpot() {
+    return { x: 90, y: FY - 6 };
+  },
+  icon(ctx) {
+    rect(ctx, 4, 6, 24, 18, 'B');
+    rect(ctx, 6, 8, 20, 14, 'T');
+    rect(ctx, 8, 10, 10, 1, 'w');
+    rect(ctx, 8, 13, 14, 1, 'w');
+    rect(ctx, 8, 16, 8, 1, 'w');
+    rect(ctx, 10, 24, 12, 4, 'R');
+  },
+};
+
+const DECOR = { agence, restaurant, ecommerce, artisan, soutien };
 return __exports;
 })();
 
@@ -6605,6 +8583,186 @@ function renderSector(state) {
 return __exports;
 })();
 
+// ---- src/ui/sectorui/restaurant.js ----
+__m["src/ui/sectorui/restaurant.js"] = (function () {
+const __exports = {};
+__def(__exports, { "renderSector": () => renderSector });
+// Contrôles de la friterie (onglet Entreprise).
+
+const { eurInput, selectInput, rangeInput, bar, help } = __m["src/ui/dom.js"];
+const { eur, num } = __m["src/ui/format.js"];
+const { RESTAURANT: D } = __m["src/data/sectors/restaurant.js"];
+const { capacities, stockQty, unitCost, blendedVat } = __m["src/engine/sectors/restaurant.js"];
+const { formatDate } = __m["src/engine/calendar.js"];
+
+function renderSector(state) {
+  const s = state.sector;
+  const caps = capacities(state);
+  const t = s.today;
+  return `
+  <section class="card-block">
+    <h3>Ta carte</h3>
+    <div class="form-row">
+      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, step: 0.1, label: `Ticket moyen TTC (marché ≈ ${eur(D.refPrice)})` })}
+      ${selectInput('ingredient', String(s.ingredient), D.ingredients.map((i) => ({ value: String(i.level), label: `${i.label} — ${eur(i.cost)}/portion` })), { type: 'sector', name: 'setIngredient' }, { label: 'Qualité des ingrédients' })}
+    </div>
+    <p class="small muted">TVA moyenne du ticket : ${num(blendedVat() * 100, 1)} % (repas 12 %, boissons 21 %) ${help('TVA')} · coût matière actuel ${eur(unitCost(state))}/portion (${num((unitCost(state) / (s.price / (1 + blendedVat()))) * 100)} % du prix HT).</p>
+  </section>
+  <section class="card-block">
+    <h3>Stock périssable</h3>
+    ${rangeInput('stockdays', s.stockDays * 100, { type: 'sector', name: 'setStockDays' }, { min: 50, max: 400, step: 10, scale: 1, label: 'Commande quotidienne : jours de ventes à couvrir', display: `${num(s.stockDays, 1)} j`, fmt: 'days100' })}
+    <p class="small">En stock : <strong>${stockQty(state)}</strong> portions (périment après ${D.shelfLife} jours) · gaspillées au total : ${s.stats.wasted} · ventes perdues (rupture ou file) : ${s.stats.lost}</p>
+    <p class="small muted">Trop bas = ruptures et clients perdus ; trop haut = gaspillage. Le lundi est jour de fermeture.</p>
+  </section>
+  <section class="card-block">
+    <h3>Service d'hier ${s.closedUntil > state.time.day ? `<span class="tag warn">Fermé jusqu’au ${formatDate(s.closedUntil)}</span>` : ''}</h3>
+    <p>${t.served} clients servis sur ${t.demand} venus · ${t.lostQueue} partis à cause de la file · ${t.lostStock} faute de stock.</p>
+    <p class="small">Capacité : cuisine ${num(caps.kitchen)} · comptoir ${num(caps.counter)} clients/jour → <strong>${num(caps.total)}</strong>.</p>
+  </section>
+  <section class="card-block">
+    <h3>Hygiène ${help('AFSCA')}</h3>
+    <p>${bar(s.hygiene, 100, s.hygiene < 55 ? 'bad' : '')} <strong>${num(s.hygiene)}/100</strong> ${s.hygiene < 55 ? '<span class="bad">— risque de sanction AFSCA !</span>' : ''}</p>
+    ${eurInput('cleaning', s.cleaning, { type: 'sector', name: 'setCleaning' }, { min: 0, max: 5000, step: 10, label: 'Budget nettoyage mensuel HT' })}
+  </section>`;
+}
+return __exports;
+})();
+
+// ---- src/ui/sectorui/ecommerce.js ----
+__m["src/ui/sectorui/ecommerce.js"] = (function () {
+const __exports = {};
+__def(__exports, { "renderSector": () => renderSector });
+// Contrôles de l'e-commerce (onglet Entreprise).
+
+const { esc, actBtn, eurInput, help } = __m["src/ui/dom.js"];
+const { eur, num, pct } = __m["src/ui/format.js"];
+const { ECOMMERCE: D } = __m["src/data/sectors/ecommerce.js"];
+const { slots, cpc, orderCapacity } = __m["src/engine/sectors/ecommerce.js"];
+const { formatDate } = __m["src/engine/calendar.js"];
+
+function renderSector(state) {
+  const s = state.sector;
+  const t = s.today;
+  const rows = D.products
+    .map((p) => {
+      const listed = s.listed.includes(p.id);
+      const inbound = s.pos.filter((x) => x.id === p.id);
+      const ht = s.prices[p.id] / (1 + p.vat);
+      const margin = ht - p.cost - p.ship - D.packing;
+      return `<li class="row ${listed ? '' : 'dim'}">
+        <div class="grow"><strong>${esc(p.label)}</strong> ${listed ? '<span class="tag good">en ligne</span>' : ''}<br>
+        <span class="small">Achat ${eur(p.cost)} HT · prix conseillé ${eur(p.ref)} TTC · TVA ${pct(p.vat)} · retours ≈ ${pct(p.returns)} · marge/commande ≈ <span class="${margin > 0 ? 'good' : 'bad'}">${eur(Math.round(margin))}</span> (hors pub)</span><br>
+        <span class="small">Stock : <strong>${s.stock[p.id] || 0}</strong>${inbound.length ? ` · en route : ${inbound.map((x) => `${x.qty} (le ${formatDate(x.arrive)})`).join(', ')}` : ''}</span></div>
+        ${listed ? eurInput(`price-${p.id}`, s.prices[p.id], { type: 'sector', name: 'setProductPrice', id: p.id }, { min: 1, max: 999, step: 0.1, label: 'Prix TTC' }) : ''}
+        <div class="btns">
+          ${listed ? actBtn('Retirer', { type: 'sector', name: 'unlistProduct', id: p.id }, { cls: 'btn-small' }) : actBtn('Mettre en ligne', { type: 'sector', name: 'listProduct', id: p.id }, { cls: 'btn-small', disabled: s.listed.length >= slots(state) })}
+          ${actBtn('Commander 50', { type: 'sector', name: 'orderStock', id: p.id, qty: 50 }, { cls: 'btn-small', title: `≈ ${eur(Math.round(p.cost * 50 * (1 + p.vat)), { decimals: false })} TTC, livré en ${D.leadTime} jours` })}
+        </div></li>`;
+    })
+    .join('');
+  return `
+  <section class="card-block">
+    <h3>Entonnoir de vente ${help('Taux de conversion')}</h3>
+    <p>${t.visitors} visiteurs hier (${t.organic} gratuits, ${t.paid} payés à ${eur(Math.round(cpc(state)))}/clic) → conversion ${pct(t.conversion, 1)} → <strong>${t.orders}</strong> commandes${t.lostStock ? `, <span class="bad">${t.lostStock} perdues (rupture)</span>` : ''}.</p>
+    <p class="small muted">Le budget marketing (plus bas) = ta publicité en ligne. Coût d'acquisition et panier moyen : surveille-les ${help('Coût d’acquisition client')}.</p>
+    <p class="small">Préparation : ${num(orderCapacity(state))} commandes/jour · à expédier : ${s.backlog}${s.backlog > orderCapacity(state) ? ' <span class="bad">(retards !)</span>' : ''}.</p>
+  </section>
+  <section class="card-block">
+    <h3>Réapprovisionnement</h3>
+    <label class="check"><input type="checkbox" ${s.reorder ? 'checked' : ''} data-input='${esc(JSON.stringify({ type: 'sector', name: 'setReorder' }))}' data-raw="1" data-checkbox="1"> Commandes fournisseur automatiques (point de commande)</label>
+    <label class="field"><span>Jours de ventes commandés à chaque réassort : ${s.coverDays}</span><input type="number" min="7" max="90" value="${s.coverDays}" data-input='${esc(JSON.stringify({ type: 'sector', name: 'setCoverDays' }))}' data-scale="1"></label>
+    <p class="small muted">Le stock est payé à la commande et arrive après ≈ ${D.leadTime} jours : c'est de la trésorerie immobilisée ${help('Besoin en fonds de roulement')}.</p>
+  </section>
+  <section class="card-block">
+    <h3>Catalogue (${s.listed.length}/${slots(state)} produits en ligne)</h3>
+    <ul class="list">${rows}</ul>
+  </section>`;
+}
+return __exports;
+})();
+
+// ---- src/ui/sectorui/artisan.js ----
+__m["src/ui/sectorui/artisan.js"] = (function () {
+const __exports = {};
+__def(__exports, { "renderSector": () => renderSector });
+// Contrôles de l'artisan (onglet Entreprise).
+
+const { esc, eurInput, selectInput, rangeInput, bar, help } = __m["src/ui/dom.js"];
+const { eur, num, pct } = __m["src/ui/format.js"];
+const { ARTISAN: D } = __m["src/data/sectors/artisan.js"];
+const { workforce, backlogDays, metier, vans } = __m["src/engine/sectors/artisan.js"];
+const { formatDate } = __m["src/engine/calendar.js"];
+
+function renderSector(state) {
+  const s = state.sector;
+  const m = metier(state);
+  const quotes = s.quotes
+    .slice(0, 8)
+    .map((q) => `<li class="row"><div class="grow"><strong>${esc(q.label)}</strong> — devis ${eur(q.price, { decimals: false })} HT (TVA ${pct(q.vat)})<br><span class="small muted">Réponse du client le ${formatDate(q.decide)} · chances ≈ ${pct(q.p)}</span></div></li>`)
+    .join('');
+  const jobs = s.jobs
+    .slice(0, 10)
+    .map((j) => `<li class="row"><div class="grow"><strong>${esc(j.label)}</strong>${j.urgent ? ' <span class="tag warn">urgent</span>' : ''} — ${eur(j.price, { decimals: false })} HT<br>${bar(j.daysDone, j.daysTotal)} <span class="small muted">${num(j.daysDone, 1)} / ${num(j.daysTotal, 1)} jour(s)-homme · matériel ${eur(j.materials, { decimals: false })}${j.matPaid ? ' (payé)' : ''}</span></div></li>`)
+    .join('');
+  return `
+  <section class="card-block">
+    <h3>${esc(m.label)} — tes tarifs</h3>
+    <div class="form-row">
+      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(D.refRate, { decimals: false })})` })}
+      ${rangeInput('margin', Math.round(s.margin * 100), { type: 'sector', name: 'setMargin' }, { min: 0, max: 60, step: 1, label: 'Marge sur le matériel', display: `${Math.round(s.margin * 100)} %`, fmt: 'pct' })}
+      ${selectInput('policy', s.policy, [{ value: 'capacite', label: 'Ne pas faire de devis si carnet plein' }, { value: 'tout', label: 'Répondre à toutes les demandes' }], { type: 'sector', name: 'setPolicy' }, { label: 'Demandes' })}
+    </div>
+    <p class="small muted">TVA à 6 % pour la rénovation d'un logement privé de plus de 10 ans, sinon 21 % ${help('TVA')}. Les dépannages sont payés sur place, les chantiers à 30 jours.</p>
+    <p class="small">Équipe : ${num(workforce(state), 1)} jour(s)-homme par jour ouvré · ${vans(state)} camionnette(s) (2 ouvriers par camionnette) · carnet : ${num(backlogDays(state), 1)} jours-homme · bouche-à-oreille : ${num(s.wom, 1)} · contrats d'entretien : ${s.contracts}.</p>
+  </section>
+  <section class="card-block">
+    <h3>Devis en attente (${s.quotes.length})</h3>
+    ${quotes ? `<ul class="list">${quotes}</ul>` : '<p class="muted">Aucun devis en attente.</p>'}
+  </section>
+  <section class="card-block">
+    <h3>Planning des chantiers (${s.jobs.length})</h3>
+    ${jobs ? `<ul class="list">${jobs}</ul>` : '<p class="muted">Aucun chantier planifié.</p>'}
+  </section>`;
+}
+return __exports;
+})();
+
+// ---- src/ui/sectorui/soutien.js ----
+__m["src/ui/sectorui/soutien.js"] = (function () {
+const __exports = {};
+__def(__exports, { "renderSector": () => renderSector });
+// Contrôles du centre de soutien scolaire (onglet Entreprise).
+
+const { eurInput, rangeInput, help } = __m["src/ui/dom.js"];
+const { eur, num, pct } = __m["src/ui/format.js"];
+const { SOUTIEN: D } = __m["src/data/sectors/soutien.js"];
+const { capacity, expectedSuccess } = __m["src/engine/sectors/soutien.js"];
+const { formatDate, MONTH_NAMES } = __m["src/engine/calendar.js"];
+
+function renderSector(state) {
+  const s = state.sector;
+  const cap = capacity(state);
+  const res = s.results.slice(-4).reverse();
+  return `
+  <section class="card-block">
+    <h3>Ton offre</h3>
+    <div class="form-row">
+      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, label: `Abonnement mensuel TTC (marché ≈ ${eur(D.refPrice, { decimals: false })})` })}
+      ${rangeInput('group', s.groupSize, { type: 'sector', name: 'setGroupSize' }, { min: D.groupSize.min, max: D.groupSize.max, step: 1, label: 'Élèves par groupe', display: `${s.groupSize}` })}
+    </div>
+    <p class="small muted">Petits groupes = meilleurs résultats mais moins d'élèves par enseignant. TVA à 21 % dans le jeu (exemption possible selon les cas) ${help('TVA')}.</p>
+  </section>
+  <section class="card-block">
+    <h3>Élèves</h3>
+    <p><strong>${s.students}</strong> inscrits · capacité ${cap.total} (enseignants : ${cap.teach}, places : ${cap.seats})${s.discounted ? ` · dont ${s.discounted} au tarif partenaire` : ''}.</p>
+    <p class="small">Réussite attendue aux prochains examens : <strong>${pct(expectedSuccess(state))}</strong>. Sessions fin janvier et fin juin ; en juin, ≈ ${Math.round(D.yearEndChurn * 100)} % des élèves partent (fin d'année).</p>
+    <p class="small muted">Inscriptions fortes en ${MONTH_NAMES[8]}, avant les examens (décembre, mai) ; creux en ${MONTH_NAMES[6]}.</p>
+  </section>
+  ${res.length ? `<section class="card-block"><h3>Résultats</h3><ul class="small">${res.map((r) => `<li>${formatDate(r.day)} : ${pct(r.success)} de réussite (${r.students} élèves)</li>`).join('')}</ul></section>` : ''}`;
+}
+return __exports;
+})();
+
 // ---- src/ui/sectorui/index.js ----
 __m["src/ui/sectorui/index.js"] = (function () {
 const __exports = {};
@@ -6612,8 +8770,12 @@ __def(__exports, { "SECTOR_UI": () => SECTOR_UI });
 // Interfaces propres à chaque secteur.
 
 const agence = __m["src/ui/sectorui/agence.js"];
+const restaurant = __m["src/ui/sectorui/restaurant.js"];
+const ecommerce = __m["src/ui/sectorui/ecommerce.js"];
+const artisan = __m["src/ui/sectorui/artisan.js"];
+const soutien = __m["src/ui/sectorui/soutien.js"];
 
-const SECTOR_UI = { agence };
+const SECTOR_UI = { agence, restaurant, ecommerce, artisan, soutien };
 return __exports;
 })();
 
@@ -7614,7 +9776,8 @@ class GameScreen {
     if (el.type === 'range') {
       const out = el.closest('label')?.querySelector('output');
       const fmt = el.dataset.fmt;
-      if (out) out.textContent = fmt === 'eur' ? eur(Number(el.value) * Number(el.dataset.scale || 1), { decimals: false }) : fmt === 'pct' ? `${el.value} %` : el.value;
+      const v = Number(el.value);
+      if (out) out.textContent = fmt === 'eur' ? eur(v * Number(el.dataset.scale || 1), { decimals: false }) : fmt === 'pct' ? `${v} %` : fmt === 'days100' ? `${(v / 100).toFixed(1).replace('.', ',')} j` : el.value;
     }
   }
 
@@ -7627,8 +9790,8 @@ class GameScreen {
     } catch {
       return;
     }
-    const value = el.dataset.raw ? el.value : Math.round(Number(String(el.value).replace(',', '.')) * Number(el.dataset.scale || 1));
-    if (!el.dataset.raw && !Number.isFinite(value)) {
+    const value = el.dataset.checkbox ? el.checked : el.dataset.raw ? el.value : Math.round(Number(String(el.value).replace(',', '.')) * Number(el.dataset.scale || 1));
+    if (!el.dataset.raw && !el.dataset.checkbox && !Number.isFinite(value)) {
       toast('Valeur invalide.', 'bad');
       return;
     }
@@ -7823,6 +9986,7 @@ function renderSide(s) {
     stock: 'Goulet : ruptures de stock — commande plus.',
     personnel: 'Goulet : pas assez de personnel en service.',
     places: 'Goulet : plus de places disponibles dans tes locaux.',
+    ferme: 'Établissement fermé (sanction ou incident).',
   }[s.company.bottleneck];
   return `
   <div class="kpis">${k.map((x) => `<div class="kpi"><span class="kpi-label">${esc(x.label)}</span><span class="kpi-value">${byFmt(x.value, x.fmt, x.suffix || '')}</span></div>`).join('')}</div>

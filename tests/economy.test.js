@@ -166,3 +166,14 @@ test('action invalide refusée sans effet', () => {
   assert.equal(applyAction(s, null).ok, false);
   assert.deepEqual(clone(s), c);
 });
+
+test('faillite : plus aucune décision en attente', () => {
+  const s = newGame({ seed: 'bk2', difficulty: 'difficile', legal: 'srl' });
+  s.events.pending.push({ uid: 99, id: 'x', title: 't', text: 't', ctx: {}, choices: [{ label: 'a', effects: [] }] });
+  s.cash = -50_000_000;
+  for (let i = 0; i < 60 && s.status !== 'bankrupt'; i++) {
+    s.events.pending.length ? applyAction(s, { type: 'decide', uid: s.events.pending[0].uid, choice: 0 }) : advance(s, 1);
+  }
+  assert.equal(s.status, 'bankrupt');
+  assert.equal(s.events.pending.length, 0);
+});

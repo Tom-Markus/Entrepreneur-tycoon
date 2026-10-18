@@ -75,7 +75,7 @@ export function refreshCandidates(state, rng, n = 3) {
 
 export function seatsAvailable(state) {
   const d = sectorData(state);
-  const seats = (d.homeSeats || 99) + upgradeEffect(state, 'seats');
+  const seats = (d.homeSeats || 99) + upgradeEffect(state, d.staffSeatKey || 'seats');
   const used = state.staff.employees.length + (state.staff.founder.active ? 1 : 0);
   return seats - used;
 }

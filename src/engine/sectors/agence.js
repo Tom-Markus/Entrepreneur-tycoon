@@ -15,6 +15,8 @@ import { clamp } from '../money.js';
 
 const WORKDAYS_PER_MONTH = 21;
 
+export const mainRole = 'developpeur';
+
 export function init(state) {
   state.sector = {
     rate: D.refRate,

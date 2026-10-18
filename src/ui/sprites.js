@@ -101,6 +101,46 @@ export const SPRITES = {
   poster: ['llllllllll', 'lyyyyyyyyl', 'lyRRyyGGyl', 'lyRRyyGGyl', 'lyyyyyyyyl', 'lyccccccyl', 'llllllllll'],
   coffee: ['.dddd.', '.dlld.', '.dRRd.', '.dddd.', 'mmmmmm', 'mllllm', 'mllllm', 'mmmmmm'],
   server: ['dddddd', 'dGkkkd', 'dddddd', 'dGkkkd', 'dddddd', 'dRkkkd', 'dddddd', 'dddddd'],
+  // Friterie
+  fryer: ['llllllllll', 'lkFFkkFFkl', 'lkFkFFkFkl', 'llllllllll', 'lmmmmmmmml', 'lmRmmmmGml', 'lmmmmmmmml', 'lmmmmmmmml'],
+  counter: ['wwwwwwwwwwwwwwwwwwwwwwwwwwww', 'RRRRRRRRRRRRRRRRRRRRRRRRRRRR', 'rwwrrwwrrwwrrwwrrwwrrwwrrwwr', 'rwwrrwwrrwwrrwwrrwwrrwwrrwwr', 'RRRRRRRRRRRRRRRRRRRRRRRRRRRR', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr', 'rrrrrrrrrrrrrrrrrrrrrrrrrrrr'],
+  cone: ['.y.y.', 'FyFyF', 'yFyFy', '.www.', '.wRw.', '..w..'],
+  menu: ['kkkkkkkkkkkk', 'kwwwwwwwwwwk', 'kwRRwwyyywwk', 'kwwwwwwwwwwk', 'kwyyywwRRwwk', 'kwwwwwwwwwwk', 'kkkkkkkkkkkk'],
+  parasol: ['....RRRRRR....', '..RRwwRRwwRR..', '.RwwRRwwRRwwR.', '......dd......', '......dd......', '......dd......', '......dd......', '......dd......', '....dddddd....'],
+  table2: ['WWWWWWWW', 'BBBBBBBB', '.B....B.', '.B....B.'],
+  // E-commerce
+  shelf: ['BBBBBBBBBBBBBB', 'B.ooo..ccc...B', 'BBBBBBBBBBBBBB', 'B..yyy.RR.ggGB', 'BBBBBBBBBBBBBB', 'B.WWW..WWW...B', 'BBBBBBBBBBBBBB', 'B............B', 'B............B'],
+  box: ['WWWWWW', 'WBBBBW', 'WWyyWW', 'WWWWWW', 'WWWWWW'],
+  laptop: ['.dddddd.', '.dCCCCd.', '.dCCCCd.', 'llllllll'],
+  // Artisan
+  van: [
+    '....wwwwwwwwwwwwwwwwww....',
+    '...wwwwwwwwwwwwwwwwwwww...',
+    '..wwccccwwwwwwwwwwwwwwww..',
+    '.wwwccccwwwwwwwwwwwwwwwww.',
+    'wwwwwwwwwwbbbbbbbbbbbwwwww',
+    'wwwwwwwwwwbbbbbbbbbbbwwwww',
+    'wwwwwwwwwwwwwwwwwwwwwwwwww',
+    'mmmmmmmmmmmmmmmmmmmmmmmmmm',
+    '..kkkk............kkkk....',
+    '..kllk............kllk....',
+  ],
+  toolbox: ['..dddd..', '.d....d.', 'RRRRRRRR', 'RyRRRRyR', 'RRRRRRRR', 'rrrrrrrr'],
+  pipe: ['llllllllllll', 'mmmmmmmmmmmm', '..........ll', '..........mm', '..........ll', '..........mm'],
+  // Soutien scolaire
+  board: [
+    'BBBBBBBBBBBBBBBBBBBBBBBB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTwwTTwTwTTTwwwTTTTTTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTwTwwTTwwwwTTwTTTwwTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BTTwwwTT=TTwwTTTTTTTTTTB',
+    'BTTTTTTTTTTTTTTTTTTTTTTB',
+    'BBBBBBBBBBBBBBBBBBBBBBBB',
+  ],
+  schoolDesk: ['WWWWWWWWWW', 'BBBBBBBBBB', '.B......B.', '.B......B.', '.B......B.'],
+  books: ['RbGyo', 'RbGyo', 'RbGyo', 'BBBBB'],
 };
 
 /** Dessine un sprite. map = remplacements de lettres (ex. { x: 'R' }). */

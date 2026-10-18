@@ -9,7 +9,7 @@
 | 2 | Moteur économique complet sur l'agence web, jouable de bout en bout, tests + simulation | ✅ |
 | 3 | Fiscalité belge, statuts, financement, employés | ✅ |
 | 4 | Concurrents et événements (≥ 60) | ✅ |
-| 5 | Les 4 autres secteurs | ⬜ |
+| 5 | Les 4 autres secteurs | ✅ |
 | 6 | Investissements, revenu passif, victoire, défaite, bac à sable, succès | ⬜ |
 | 7 | Interface pixel art finale, scène animée, graphiques, tutoriel, sons, responsive, accessibilité | ⬜ |
 | 8 | Équilibrage par simulation, bugs, polish | ⬜ |

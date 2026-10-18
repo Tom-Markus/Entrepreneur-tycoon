@@ -140,6 +140,22 @@ export function processReceivables(state, onDefault) {
   f.receivables = keep;
 }
 
+/** Remboursement d'une vente (retour produit) : CA et TVA collectée diminuent. */
+export function refund(state, ht, vatRate, cat) {
+  if (ht <= 0) return 0;
+  const vat = vatFor(state, ht, vatRate);
+  const f = state.finance;
+  state.cash -= ht + vat;
+  f.vat.collected -= vat;
+  f.month.revenue -= ht;
+  f.year.revenue -= ht;
+  f.totals.revenue -= ht;
+  f.month.revByCat[cat] = (f.month.revByCat[cat] || 0) - ht;
+  f.year.revByCat[cat] = (f.year.revByCat[cat] || 0) - ht;
+  recordOut(state, ht + vat, 'retours');
+  return ht + vat;
+}
+
 /**
  * Achat avec TVA. opts.capex = investissement amorti (pas une charge immédiate).
  * En franchise TVA, la TVA n'est pas déductible : elle devient une charge.
