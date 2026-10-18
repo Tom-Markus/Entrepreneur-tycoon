@@ -46,7 +46,7 @@ export const ARTISAN = {
   billableRatio: 0.72, // part du temps réellement facturable (trajets, devis, administratif)
   elasticity: 1.4,
   marketingRef: 40_000,
-  marketLeads: 3.8, // demandes/jour ouvré sur le marché local
+  marketLeads: 3.5, // demandes/jour ouvré sur le marché local
   weekendLeads: 0.35, // part des dépannages le week-end
   baseAccept: 0.62,
   urgentFee: 4_500, // forfait de déplacement des dépannages

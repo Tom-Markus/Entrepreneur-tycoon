@@ -187,7 +187,29 @@ avec une explication en une phrase.
 Indice `economy` (≈ 0,8 à 1,15) en marche aléatoire lente qui revient vers 1,
 déformé par les événements « crise » et « reprise ».
 
-### 4.5 Météo
+### 4.5 Inflation et indexation
+
+Chaque fin d'année, le **niveau général des prix** monte (≈ 2 % ± 0,6 %) : prix
+de référence du marché, coûts d'achat (ingrédients, stock, matériaux), charges
+fixes et salaires du marché. Les salaires des employés et le coût de la vie
+sont **indexés automatiquement** (spécificité belge), sauf si l'événement
+« saut d'index » tombe. Le joueur doit donc revoir ses prix : sinon ses marges
+fondent. L'objectif de revenu passif est lui aussi indexé (3 000 € de 2026).
+
+### 4.6 Concurrence qui réagit
+
+Quand ta part de marché dépasse 30 %, les concurrents augmentent leur
+marketing, leur qualité et leur réputation ; au-delà de 45 %, un nouvel
+entrant peut arriver chaque mois. Les bonus d'image (marque, commerciaux) ont
+des rendements décroissants (racine carrée).
+
+### 4.7 Coordination des équipes
+
+Au-delà de 4 employés, chaque personne en plus coûte 1,2 % de productivité à
+toute l'équipe (plancher 72 %) ; un gérant compense en partie. Le fondateur
+progresse avec l'expérience (+0,25 point de compétence par mois, max 88).
+
+### 4.8 Météo
 
 Chaque jour : soleil / nuageux / pluie / froid / canicule, tiré selon la
 saison. Utilisée par la friterie (terrasse, envies), l'artisan (pannes de
@@ -218,8 +240,10 @@ rôles d'employés, sprites de scène).
   par l'amélioration « Acompte de 30 % »).
 - **Portfolio** : chaque projet livré de bonne qualité augmente la réputation.
 - **Récurrent** : contrats de maintenance mensuels (amélioration), puis
-  **SaaS** (gros projet interne de 600 h) avec abonnés, churn et coûts serveur.
-  C'est la voie naturelle vers une entreprise qui tourne sans le fondateur.
+  **SaaS** (gros projet interne de 600 h) avec abonnés, churn et coûts serveur ;
+  un SaaS de niche belge plafonne autour de 1 000 abonnés.
+- Heures facturables réalistes : ≈ 5,5 h/jour par personne (le reste =
+  devis, administration, prospection).
 - TVA 21 %.
 
 ### 5.2 Restaurant / friterie — *gérer du périssable*
@@ -230,8 +254,10 @@ rôles d'employés, sprites de scène).
   durée de vie 4 jours. Commande automatique paramétrable (jours de stock
   visés) ; livraison le lendemain. Rupture = clients perdus ; surplus = gaspillage.
 - **Qualité des ingrédients** (3 niveaux) : coût par portion vs qualité.
-- **Capacité** = places assises × rotations + comptoir à emporter, limitée par le
-  personnel en service (fondateur + employés). File d'attente → clients perdus.
+- **Capacité** = min(personnel, équipement) : le fondateur seul sert ≈ 60
+  clients/jour, chaque vendeur ≈ 110, chaque cuisinier ≈ 90 ; l'équipement (2
+  friteuses) plafonne à 150, plus avec les améliorations. File d'attente →
+  clients perdus. Fermé le lundi.
 - **Hygiène** (0–100) : baisse avec le volume, remonte avec le budget nettoyage
   et les améliorations. Contrôles **AFSCA** (amende, fermeture temporaire).
 - **Emplacement** : rue secondaire → place animée → 2e établissement.
@@ -247,6 +273,9 @@ rôles d'employés, sprites de scène).
 - **Stock** acheté à l'avance (paiement immédiat, livraison en 10 jours),
   réapprovisionnement automatique par point de commande. Rupture = ventes
   perdues. Coût de stockage mensuel.
+- Panier moyen ≈ 1,35 article par commande ; les visiteurs payés convertissent
+  moins bien (×0,7) que les visiteurs organiques, et le coût par clic augmente
+  quand on achète beaucoup de trafic (saturation des enchères).
 - **Logistique** par commande, frais de paiement, **retours** (remboursement,
   70 % du produit revendable).
 - Pics : Black Friday (fin novembre ×2,5), décembre, soldes de janvier.
@@ -264,7 +293,9 @@ rôles d'employés, sprites de scène).
   productivité chute.
 - Coûts : matériel acheté au démarrage du chantier, déplacements par jour de
   chantier, usure/panne d'outillage.
-- Paiement à la fin du chantier à 30 jours, litiges possibles (malfaçon).
+- Acompte de 30 % à la commande pour les chantiers avec beaucoup de matériel,
+  solde à la fin du chantier à 30 jours, litiges possibles (malfaçon).
+- Seulement ≈ 72 % du temps est facturable (trajets, devis, administratif).
 - **Recommandations** : chaque chantier réussi alimente un stock de
   bouche-à-oreille qui génère des leads futurs.
 - TVA : 6 % (rénovation de logement de plus de 10 ans pour un particulier) ou
@@ -283,7 +314,8 @@ rôles d'employés, sprites de scène).
 - Désinscriptions : churn mensuel + départ massif en fin d'année scolaire.
 - **Stages** pendant les congés (amélioration) pour lisser les revenus d'été.
 - Enseignants : étudiants-jobistes (bon marché, moins bons) ou enseignants
-  diplômés (chers, meilleurs résultats).
+  diplômés (chers, meilleurs résultats), **payés à l'heure de cours** : leur
+  coût suit le remplissage (le creux de l'été ne tue pas le centre).
 - TVA : 21 % (simplifié — certaines formations peuvent être exemptées
   (art. 44 Code TVA), voir `fiscalite.js`).
 
@@ -363,6 +395,12 @@ d'enrôlement (on fixe l'échéance de l'impôt annuel au 30 juin N+1).
   des parts ; il touche ensuite Y % des dividendes et du revenu passif
   d'entreprise, et réclame de la croissance.
 
+### Prêt de démarrage
+
+Si l'apport ne couvre pas l'équipement de départ + 3 000 € de réserve (ex. :
+camionnette de l'artisan en difficulté Réaliste), la banque accorde
+automatiquement un prêt de démarrage sur 48 mois.
+
 ### Faillite
 
 Si la trésorerie pro passe sous la limite du découvert, l'entreprise est **en
@@ -405,11 +443,11 @@ Les événements avec choix mettent le jeu en pause jusqu'à la décision.
 
 **Communs** : bouche-à-oreille, avis négatif viral, panne informatique, hausse
 de l'énergie, grève nationale, contrôle fiscal, inspection sociale, subvention
-régionale, crise économique (chaîne → reprise), reprise économique, canicule,
-vague de froid, inondation, cambriolage, litige client, démission d'un employé
-clé, maladie longue, conflit d'équipe, proposition de partenariat, business
-angel (SRL), offre de crédit promo, hausse des taux BCE, indexation des
-salaires, nouvelle réglementation, article dans la presse, salon
+régionale (chaîne → réponse), crise économique (chaîne → reprise), reprise
+économique, canicule, vague de froid, inondation, cambriolage, litige client,
+démission d'un employé clé, maladie longue, conflit d'équipe, team building,
+business angel (SRL), offre de crédit promo, hausse et baisse des taux BCE,
+saut d'index, nouvelle réglementation, article dans la presse, salon
 professionnel, demande de stage, faillite d'un fournisseur, erreur du
 comptable, retard de paiement d'un gros client, cyberattaque, promo d'un
 concurrent, nouveau concurrent, faillite d'un concurrent, épuisement du
@@ -469,9 +507,15 @@ conjoncture (krach possible). La taxe sur les comptes-titres (0,15 % au-delà de
 passif = intérêts nets de l'épargne
        + 4 % × (valeur ETF + actions) / 12        (règle des 4 %, nette de taxe plus-values estimée)
        + loyers nets − mensualités hypothécaires − charges
-       + part du fondateur × bénéfice net moyen (6 mois) de l'entreprise, SI un gérant
-         la dirige et que le fondateur s'est retiré de l'opérationnel
+       + part du fondateur × 70 % du bénéfice moyen de l'entreprise après impôts,
+         SI un gérant la dirige et que le fondateur s'est retiré de l'opérationnel
 ```
+
+Pour l'entreprise : seuls les mois écoulés **depuis ton retrait** comptent
+(minimum 2 mois, maximum 12) — l'entreprise doit prouver qu'elle tourne sans
+toi ; 30 % du bénéfice restent dans l'entreprise (réinvestissement, réserve).
+L'impôt est estimé avec les vraies fonctions fiscales (IPP + cotisations en
+indépendant ; ISOC + précompte 15 % + rémunération en SRL).
 
 La règle des 4 % est la convention de la « liberté financière » (on peut
 retirer ~4 %/an d'un portefeuille diversifié sans l'épuiser) ; elle est
@@ -480,7 +524,7 @@ expliquée dans le glossaire.
 ### 11.3 Victoire
 
 Moyenne du revenu passif sur 3 mois ≥ cible (Facile 2 000 €, Normal et
-Réaliste 3 000 €, Difficile 3 500 €). Écran de bilan, puis **mode bac à sable**
+Réaliste 3 000 €, Difficile 3 500 €, en euros de 2026 indexés sur l'inflation). Écran de bilan, puis **mode bac à sable**
 illimité. Les succès restent débloquables.
 
 ### 11.4 Défaite et post-mortem
@@ -493,7 +537,7 @@ causes principales et donne un **conseil pédagogique** par cause.
 
 ### 11.5 Succès
 
-38 succès (`src/data/achievements.js`) : premiers 10 000 € de CA, premier
+42 succès (`src/data/achievements.js`, dont 6 propres à un secteur) : premiers 10 000 € de CA, premier
 employé, 10 employés, survivre à un contrôle fiscal, première TVA payée, prêt
 remboursé, premier bien immobilier, millionnaire, victoire sans crédit, un par
 secteur, etc.
@@ -571,3 +615,8 @@ Pure, sans effet de bord, testée. Elle servira au classement V2.
 | 11 | Une seule police pixel bitmap pour les titres | Pas d'asset externe ; texte courant en monospace pour la lisibilité. |
 | 12 | Coût employeur = brut × 1,35 | Approximation (ONSS ≈ 25 % + pécule, 13e mois, assurance, secrétariat social). |
 | 13 | Les décisions d'événement pausent le moteur | Le joueur ne rate jamais une décision ; les bots décident instantanément. |
+| 14 | Inflation + indexation automatique | Sans inflation, l'indexation des salaires détruisait les marges ; c'est aussi une leçon belge réelle. |
+| 15 | Revenu passif d'entreprise compté après le retrait seulement | Sinon on « gagnait » le mois même où l'on recrutait un gérant. |
+| 16 | Marchés bornés et concurrence qui réagit | Les premières simulations montraient une agence à 30 employés et 84 % de parts de marché en 5 ans. |
+| 17 | Prêt de démarrage automatique | En Difficile, l'artisan faisait faillite en 2 mois faute de pouvoir payer sa camionnette. |
+| 18 | Profs et jobistes payés à l'heure | Le creux scolaire de l'été rendait le secteur non viable avec des salaires fixes. |

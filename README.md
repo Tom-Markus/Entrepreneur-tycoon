@@ -24,6 +24,11 @@ construis des revenus passifs jusqu'à la **liberté financière**.
 - Faillite ? Un **post-mortem** explique les causes et donne des conseils.
 - Pixel art, police pixel et sons générés par le code : aucun fichier externe.
 
+| | |
+|---|---|
+| ![Écran titre](docs/screenshots/titre.png) | ![Finances](docs/screenshots/finances.png) |
+| ![Marché de l'artisan](docs/screenshots/marche-artisan.png) | ![Version mobile](docs/screenshots/mobile-soutien.png) |
+
 ## Jouer
 
 **En ligne** : une fois GitHub Pages activé (voir plus bas), le jeu est à

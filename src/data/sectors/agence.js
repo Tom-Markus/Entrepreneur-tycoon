@@ -19,7 +19,7 @@ export const AGENCE = {
   refRate: 6_500, // taux horaire de référence du marché : 65 €/h HT
   minRate: 2_500,
   maxRate: 20_000,
-  elasticity: 1.6,
+  elasticity: 1.4,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
   marketLeads: 1.4,
@@ -63,7 +63,7 @@ export const AGENCE = {
     serverCostPerSub: 300,
     serverCostBase: 5_000,
     supportHoursPerSub: 0.08,
-    potential: 900, // marché d'un SaaS de niche belge
+    potential: 1_100, // marché d'un SaaS de niche belge
     elasticity: 1.5,
   },
 

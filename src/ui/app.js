@@ -182,10 +182,9 @@ export class App {
       this.slot = slot;
       closeModal(true);
       this.stopGame();
-      if (this.state.status === 'bankrupt') {
-        this.enterGame();
-        this.showEnd();
-      } else this.enterGame();
+      this.enterGame();
+      // Une partie gagnée mais pas encore passée en bac à sable ré-affiche le bilan.
+      if (this.state.status === 'bankrupt' || this.state.status === 'won') this.showEnd();
       toast('Partie chargée.', 'good');
     } catch (e) {
       toast(`Chargement impossible : ${e.message}`, 'bad');

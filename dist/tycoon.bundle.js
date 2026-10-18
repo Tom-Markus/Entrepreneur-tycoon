@@ -839,10 +839,10 @@ const AGENCE = {
   refRate: 6_500, // taux horaire de référence du marché : 65 €/h HT
   minRate: 2_500,
   maxRate: 20_000,
-  elasticity: 1.6,
+  elasticity: 1.4,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
-  marketLeads: 1.1,
+  marketLeads: 1.4,
   seasonality: [1.1, 1.05, 1.05, 1, 1, 0.95, 0.7, 0.55, 1.15, 1.1, 1.05, 0.8],
   leadExpiryDays: 6,
   marketingRef: 50_000, // 500 €/mois = budget marketing « de référence »
@@ -883,7 +883,7 @@ const AGENCE = {
     serverCostPerSub: 300,
     serverCostBase: 5_000,
     supportHoursPerSub: 0.08,
-    potential: 700, // marché d'un SaaS de niche belge
+    potential: 1_100, // marché d'un SaaS de niche belge
     elasticity: 1.5,
   },
 
@@ -990,7 +990,7 @@ const RESTAURANT = {
   elasticity: 1.6,
   marketingRef: 40_000,
 
-  marketClients: 300, // clients potentiels par jour dans le quartier (tous acteurs confondus)
+  marketClients: 275, // clients potentiels par jour dans le quartier (tous acteurs confondus)
   weekday: [0, 0.8, 0.95, 0.95, 1.35, 1.45, 1.0], // fermé le lundi (jour de repos classique)
   seasonality: [0.9, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.1, 1, 0.95, 0.95, 1.05],
   weather: { soleil: 1.1, nuageux: 1, pluie: 0.85, froid: 1.05, canicule: 0.85 },
@@ -1081,7 +1081,7 @@ const ECOMMERCE = {
 
   elasticity: 2.0,
   marketingRef: 100_000, // budget pub mensuel de référence
-  organicVisitors: 1_100, // visiteurs organiques/jour sur le marché (partagés)
+  organicVisitors: 1_000, // visiteurs organiques/jour sur le marché (partagés)
   baseConversion: 0.03,
   cpc: 32, // coût par clic de base : 0,32 €
   cpcSaturation: 900, // au-delà de ≈ 900 clics/jour, les enchères coûtent de plus en plus cher
@@ -1214,7 +1214,7 @@ const ARTISAN = {
   billableRatio: 0.72, // part du temps réellement facturable (trajets, devis, administratif)
   elasticity: 1.4,
   marketingRef: 40_000,
-  marketLeads: 3.4, // demandes/jour ouvré sur le marché local
+  marketLeads: 3.5, // demandes/jour ouvré sur le marché local
   weekendLeads: 0.35, // part des dépannages le week-end
   baseAccept: 0.62,
   urgentFee: 4_500, // forfait de déplacement des dépannages
@@ -1322,8 +1322,8 @@ const SOUTIEN = {
   roles: {
     etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true, flex: true,
       desc: 'Contrat étudiant payé à l’heure : coûte selon le remplissage (3 groupes), résultats moyens.' },
-    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 6, teach: true,
-      desc: 'Mi-temps, cher mais efficace (6 groupes).' },
+    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 6, teach: true, flex: true,
+      desc: 'Payé à l’heure de cours donnée (coûte selon le remplissage), cher mais efficace (6 groupes).' },
     coordinateur: { id: 'coordinateur', label: 'Coordinateur·rice pédagogique', baseSalary: 320_000, skillRange: [45, 90], max: 1, success: 0.05,
       desc: 'Suivi des élèves et lien avec les parents : +5 points de réussite, moins de départs.' },
   },
@@ -1781,6 +1781,10 @@ function init(state, opts, diff) {
   const creation = FISCALITE.creation[state.meta.legal] || 0;
   spend(state, creation, state.meta.legal === 'srl' ? 0.21 : 0, 'autres');
   if (sd.startCostExtra) spend(state, sd.startCostExtra, 0.21, 'investissement', { capex: true, label: 'Équipement de départ' });
+  // Si l'apport ne couvre pas l'équipement + une petite réserve, la banque finance la différence
+  // (prêt de démarrage, accordé par loans.init).
+  const safety = 300_000;
+  if (state.cash < safety) state.flags.starterLoan = Math.ceil((safety - state.cash) / 100_000) * 100_000;
   state.finance.franchise = !!opts.vatFranchise;
   state.stats.startCapital = capital;
 }
@@ -2614,7 +2618,7 @@ function daily(state, rng) {
   // 6) Panneau « pourquoi ? »
   state.company.why = [
     { label: 'Part de marché', value: lr.share, kind: 'pct', hint: 'Ta part des demandes face aux concurrents.' },
-    { label: 'Prix (taux horaire)', value: lr.att.parts.prix, hint: 'Plus ton taux dépasse 65 €/h, moins on te choisit.' },
+    { label: 'Prix (taux horaire)', value: lr.att.parts.prix, hint: `Plus ton taux dépasse le prix du marché (${Math.round(refPrice(state) / 100)} €/h), moins on te choisit.` },
     { label: 'Qualité', value: lr.att.parts.qualite, hint: 'Compétence de l’équipe, designers et améliorations.' },
     { label: 'Réputation', value: lr.att.parts.reputation, hint: 'Projets livrés à temps et bien faits.' },
     { label: 'Marketing', value: lr.att.parts.marketing, hint: 'Rendements décroissants : doubler le budget ne double pas les clients.' },
@@ -3035,7 +3039,7 @@ function daily(state, rng) {
   state.staff.lastWorkload = capacity > 0 ? demand / capacity : 0;
   state.company.demandPerDay = ex.lambda;
   state.company.why = [
-    ...baseWhy(ex.m, `Ticket moyen ${(s.price / 100).toFixed(2).replace('.', ',')} € (marché 11,50 €).`),
+    ...baseWhy(ex.m, `Ticket moyen ${(s.price / 100).toFixed(2).replace('.', ',')} € (marché ${(refPrice(state) / 100).toFixed(2).replace('.', ',')} €).`),
     { label: 'Jour de la semaine', value: ex.weekday, hint: 'Vendredi et samedi sont les meilleurs jours.' },
     { label: 'Météo', value: ex.weather, hint: 'Soleil + terrasse = foule ; la pluie fait fuir.' },
     { label: 'Saison', value: ex.season, hint: 'L’été est la haute saison.' },
@@ -3950,7 +3954,7 @@ function daily(state, rng) {
   state.staff.lastWorkload = cap.teach > 0 ? s.students / cap.teach : 0;
   state.company.demandPerDay = er.perDay;
   state.company.why = [
-    ...baseWhy(er.m, `Abonnement ${(s.price / 100).toFixed(0)} €/mois (marché 175 €).`),
+    ...baseWhy(er.m, `Abonnement ${(s.price / 100).toFixed(0)} €/mois (marché ${Math.round(refPrice(state) / 100)} €).`),
     { label: 'Calendrier scolaire', value: er.season, hint: 'Rentrée et avant-examens : affluence. Été : désert.' },
     { label: 'Implantations', value: er.location, hint: 'Antenne, cours hybrides.' },
   ];
@@ -5203,6 +5207,18 @@ function init(state) {
   state.loanSeq = 0;
   state.ownership = { founder: 1, investors: [] };
   state.offers = { investor: null };
+  // Prêt de démarrage (voir company.init) : 48 mois au taux du marché
+  if (state.flags.starterLoan) {
+    const amount = state.flags.starterLoan;
+    const rate = state.world.baseRate + L.baseSpread + (state.meta.legal === 'independant' ? L.independantPremium : 0) + 0.01;
+    const payment = annuity(amount, rate, 48);
+    state.loanSeq += 1;
+    state.loans.push({ id: state.loanSeq, principal: amount, remaining: amount, rate, months: 48, monthsLeft: 48, payment, startDay: 0 });
+    receive(state, amount, 'pret');
+    state.stats.loansTaken = 1;
+    log(state, 'info', `Ton apport ne couvre pas l'équipement de départ : la banque t'accorde un prêt de démarrage de ${Math.round(amount / 100)} € (48 mois, mensualité ${Math.round(payment / 100)} €).`, true);
+    delete state.flags.starterLoan;
+  }
 }
 
 function totalDebt(state) {
@@ -11194,10 +11210,9 @@ class App {
       this.slot = slot;
       closeModal(true);
       this.stopGame();
-      if (this.state.status === 'bankrupt') {
-        this.enterGame();
-        this.showEnd();
-      } else this.enterGame();
+      this.enterGame();
+      // Une partie gagnée mais pas encore passée en bac à sable ré-affiche le bilan.
+      if (this.state.status === 'bankrupt' || this.state.status === 'won') this.showEnd();
       toast('Partie chargée.', 'good');
     } catch (e) {
       toast(`Chargement impossible : ${e.message}`, 'bad');

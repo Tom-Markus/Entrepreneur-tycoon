@@ -26,7 +26,7 @@ export const RESTAURANT = {
   elasticity: 1.6,
   marketingRef: 40_000,
 
-  marketClients: 285, // clients potentiels par jour dans le quartier (tous acteurs confondus)
+  marketClients: 275, // clients potentiels par jour dans le quartier (tous acteurs confondus)
   weekday: [0, 0.8, 0.95, 0.95, 1.35, 1.45, 1.0], // fermé le lundi (jour de repos classique)
   seasonality: [0.9, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.1, 1, 0.95, 0.95, 1.05],
   weather: { soleil: 1.1, nuageux: 1, pluie: 0.85, froid: 1.05, canicule: 0.85 },

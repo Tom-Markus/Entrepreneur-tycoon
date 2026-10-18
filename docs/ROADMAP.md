@@ -12,7 +12,7 @@
 | 5 | Les 4 autres secteurs | ✅ |
 | 6 | Investissements, revenu passif, victoire, défaite, bac à sable, succès | ✅ |
 | 7 | Interface pixel art finale, scène animée, graphiques, tutoriel, sons, responsive, accessibilité | ✅ |
-| 8 | Équilibrage par simulation, bugs, polish | ⬜ |
+| 8 | Équilibrage par simulation, bugs, polish | ✅ |
 | 9 | README, déploiement GitHub Pages | ⬜ |
 
 ## Idées après la V1
