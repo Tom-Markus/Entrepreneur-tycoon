@@ -40,6 +40,7 @@ export function loanOffer(state, months = 48) {
   if (profit < 0) rate += 0.015;
   rate += (months / 12 - 3) * 0.0015; // les longues durées coûtent un peu plus
   if (state.endgame && state.endgame.distressDays > 0) rate += 0.03;
+  if ((state.flags.loanPromo || 0) > state.time.day) rate -= 0.01; // campagne promotionnelle de la banque
   rate = clamp(rate, 0.015, 0.16);
   const history = state.finance.history.length;
   let max = history < 6 ? L.startupMax[state.meta.legal] : rev * L.revenueMultiple * (0.6 + rep / 100);

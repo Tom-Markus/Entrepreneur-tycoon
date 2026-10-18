@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, advance, applyAction } from '../src/engine/index.js';
+import { run } from './helpers.js';
 import { earn, spend, invoice, processReceivables, amortizationForYear } from '../src/engine/ledger.js';
 import { hoursPerDay, backlogHours } from '../src/engine/sectors/agence.js';
 import { attractiveness, priceFactor, marketingFactor } from '../src/engine/demand.js';
@@ -70,7 +71,7 @@ test('demande : prix plus élevé → moins attractif ; marketing à rendements 
 
 test('agence : des projets sont signés, livrés et facturés', () => {
   const s = newGame({ seed: 'agence-1' });
-  advance(s, 180);
+  run(s, 180);
   assert.ok(s.sector.stats.leadsWon > 0, 'aucun projet signé');
   assert.ok(s.sector.stats.projectsDone > 0, 'aucun projet livré');
   assert.ok(s.finance.totals.revenue > 0);
@@ -81,8 +82,8 @@ test('agence : un taux exorbitant fait fuir les clients', () => {
   const a = newGame({ seed: 'rate' });
   const b = newGame({ seed: 'rate' });
   applyAction(b, { type: 'sector', name: 'setRate', value: 20_000 });
-  advance(a, 120);
-  advance(b, 120);
+  run(a, 120);
+  run(b, 120);
   assert.ok(b.sector.stats.leadsWon < a.sector.stats.leadsWon);
 });
 
@@ -100,7 +101,7 @@ test('licenciement : indemnité de préavis payée', () => {
   const s = newGame({ seed: 'fire' });
   s.staff.candidates.push({ id: 999, name: 'Test', role: 'developpeur', skill: 60, trait: 'fiable', salary: 330_000, expires: 9999 });
   applyAction(s, { type: 'hire', id: 999 });
-  advance(s, 400);
+  run(s, 400);
   const cash = s.cash;
   const r = applyAction(s, { type: 'fire', id: 999 });
   assert.ok(r.ok);
@@ -110,7 +111,7 @@ test('licenciement : indemnité de préavis payée', () => {
 test('faillite si la trésorerie reste sous le découvert au-delà du délai de grâce', () => {
   const s = newGame({ seed: 'bk', difficulty: 'difficile', legal: 'srl' });
   s.cash = -10_000_000;
-  advance(s, 40);
+  run(s, 40);
   assert.equal(s.status, 'bankrupt');
   assert.ok(s.endgame.postmortem.causes.length > 0);
   const day = s.time.day;
@@ -128,15 +129,15 @@ test('indépendant : l’épargne perso renfloue l’entreprise (responsabilité
 });
 
 test('déterminisme : même seed + mêmes actions = même état', () => {
-  const run = () => {
+  const play = () => {
     const s = newGame({ seed: 'det', difficulty: 'realiste' });
-    advance(s, 45);
+    run(s, 45);
     applyAction(s, { type: 'sector', name: 'setRate', value: 7_500 });
     applyAction(s, { type: 'setMarketing', value: 30_000 });
-    advance(s, 400);
+    run(s, 400);
     return clone(s);
   };
-  assert.deepEqual(run(), run());
+  assert.deepEqual(play(), play());
 });
 
 test('rejeu : seed + journal d’actions reproduit la partie', () => {

@@ -60,7 +60,7 @@ export function monthEnd(state) {
   const avg = avgRevenue(state, 3);
   const credibility = state.meta.legal === 'srl' ? 1 : 0.8;
   f.overdraftLimit = clamp(Math.round(avg * ECONOMY.overdraftRevenueShare * credibility), ECONOMY.overdraftStart, ECONOMY.overdraftMax);
-  if (state.flags.overdraftCut) f.overdraftLimit = ECONOMY.overdraftStart;
+  if ((state.flags.overdraftCut || 0) > state.time.day) f.overdraftLimit = ECONOMY.overdraftStart;
   resetMonth(state);
 }
 

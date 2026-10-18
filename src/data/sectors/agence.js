@@ -22,7 +22,7 @@ export const AGENCE = {
   elasticity: 1.25,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
-  marketLeads: 1.15,
+  marketLeads: 1.9,
   seasonality: [1.1, 1.05, 1.05, 1, 1, 0.95, 0.7, 0.55, 1.15, 1.1, 1.05, 0.8],
   leadExpiryDays: 6,
   marketingRef: 50_000, // 500 €/mois = budget marketing « de référence »

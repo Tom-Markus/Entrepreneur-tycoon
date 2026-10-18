@@ -370,6 +370,17 @@ export function monthEnd(state, rng) {
   }
 }
 
+/** Valeur mensuelle approximative du marché local (pour les concurrents). */
+export function marketValue(state) {
+  const diff = DIFFICULTIES[state.meta.difficulty];
+  return D.marketLeads * diff.marketMult * WORKDAYS_PER_MONTH * 70 * refPrice(state) * economyIndex(state);
+}
+
+/** Prix du joueur relatif au marché (1 = prix de référence). */
+export function priceIndex(state) {
+  return state.sector.rate / refPrice(state);
+}
+
 /** Revenu récurrent mensuel (maintenance + SaaS), HT. */
 export function recurringRevenue(state) {
   const s = state.sector;
@@ -399,6 +410,27 @@ export function sceneInfo(state) {
     customers: Math.min(6, s.leads.length + s.projects.length),
     workers: state.staff.employees.length + (state.staff.founder.active ? 1 : 0),
   };
+}
+
+/** Opérations d'événements propres à l'agence. */
+export function eventOp(state, e) {
+  const s = state.sector;
+  if (e.op === 'bigProject') {
+    s.projSeq += 1;
+    const rate = Math.round(s.rate * (e.rateMult || 1));
+    s.projects.push({
+      id: s.projSeq, client: 'Marché public', label: 'Portail communal', hoursEst: e.hours, hoursReal: Math.round(e.hours * 1.1),
+      done: 0, price: e.hours * rate, deposit: 0, start: state.time.day, deadlineDay: state.time.day + 150, internal: false,
+    });
+  } else if (e.op === 'scopeCreep') {
+    const p = s.projects.find((x) => !x.internal);
+    if (p) {
+      p.hoursReal += Math.round(p.hoursEst * e.pct);
+      if (e.paid) p.price += Math.round(p.hoursEst * e.pct * s.rate);
+    }
+  } else if (e.op === 'saasBoost') {
+    if (s.saas.status === 'live') s.saas.subscribers += e.n;
+  }
 }
 
 export const actions = {

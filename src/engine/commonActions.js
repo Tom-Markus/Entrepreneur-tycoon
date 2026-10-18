@@ -7,6 +7,7 @@ import { buyUpgrade } from './upgrades.js';
 import * as staff from './systems/staff.js';
 import { personalOut, personalIn, receive, pay } from './ledger.js';
 import * as loans from './systems/loans.js';
+import { decide } from './events.js';
 import { dividendRate } from './taxmath.js';
 import { dateOf } from './calendar.js';
 import { clamp } from './money.js';
@@ -72,6 +73,9 @@ registerActions({
     state.stats.retiredDay = state.time.day;
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
     return { ok: true };
+  },
+  decide(state, a, rng) {
+    return decide(state, a.uid, a.choice, rng);
   },
   requestLoan(state, a) {
     return loans.requestLoan(state, Number(a.amount), Number(a.months));

@@ -41,16 +41,25 @@ export function canBuyUpgrade(state, id) {
   }
   if (u.requiresFlag && !state.flags[u.requiresFlag]) return { ok: false, reason: 'Pas encore disponible.' };
   if (u.minRep && state.company.reputation < u.minRep) return { ok: false, reason: `Réputation ${u.minRep} requise.` };
-  const total = Math.round(u.cost * 1.21);
+  const total = Math.round(upgradeCost(state, u) * 1.21);
   if (state.cash - total < -state.finance.overdraftLimit) return { ok: false, reason: 'Trésorerie insuffisante.' };
   return { ok: true, total };
+}
+
+/** Prix HT d'une amélioration (remise d'événement éventuelle). */
+export function upgradeCost(state, u) {
+  const d = state.flags.upgradeDiscount;
+  if (d && d.until > state.time.day && d.cat === u.cat) return Math.round(u.cost * (1 - d.pct));
+  return u.cost;
 }
 
 export function buyUpgrade(state, id) {
   const c = canBuyUpgrade(state, id);
   if (!c.ok) return c;
   const u = upgradeList(state).find((x) => x.id === id);
-  spend(state, u.cost, 0.21, 'investissement', { capex: true, label: u.label });
+  const cost = upgradeCost(state, u);
+  if (cost < u.cost) state.flags.upgradeDiscount = null;
+  spend(state, cost, 0.21, 'investissement', { capex: true, label: u.label });
   state.upgrades.owned.push(id);
   state.stats.upgradesBought = (state.stats.upgradesBought || 0) + 1;
   log(state, 'good', `Amélioration acquise : ${u.label}.`);

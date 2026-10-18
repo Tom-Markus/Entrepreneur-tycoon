@@ -791,7 +791,7 @@ const AGENCE = {
   elasticity: 1.25,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
-  marketLeads: 1.15,
+  marketLeads: 1.9,
   seasonality: [1.1, 1.05, 1.05, 1, 1, 0.95, 0.7, 0.55, 1.15, 1.1, 1.05, 0.8],
   leadExpiryDays: 6,
   marketingRef: 50_000, // 500 €/mois = budget marketing « de référence »
@@ -1188,7 +1188,7 @@ return __exports;
 // ---- src/engine/upgrades.js ----
 __m["src/engine/upgrades.js"] = (function () {
 const __exports = {};
-__def(__exports, { "initUpgrades": () => initUpgrades, "hasUpgrade": () => hasUpgrade, "upgradeList": () => upgradeList, "upgradeEffect": () => upgradeEffect, "canBuyUpgrade": () => canBuyUpgrade, "buyUpgrade": () => buyUpgrade, "payUpgradeMonthly": () => payUpgradeMonthly, "monthlyUpgradeCosts": () => monthlyUpgradeCosts });
+__def(__exports, { "initUpgrades": () => initUpgrades, "hasUpgrade": () => hasUpgrade, "upgradeList": () => upgradeList, "upgradeEffect": () => upgradeEffect, "canBuyUpgrade": () => canBuyUpgrade, "upgradeCost": () => upgradeCost, "buyUpgrade": () => buyUpgrade, "payUpgradeMonthly": () => payUpgradeMonthly, "monthlyUpgradeCosts": () => monthlyUpgradeCosts });
 // Améliorations (arbre de progression par secteur).
 // Effets : une clé se terminant par « Mult » se multiplie, les autres s'additionnent.
 
@@ -1232,16 +1232,25 @@ function canBuyUpgrade(state, id) {
   }
   if (u.requiresFlag && !state.flags[u.requiresFlag]) return { ok: false, reason: 'Pas encore disponible.' };
   if (u.minRep && state.company.reputation < u.minRep) return { ok: false, reason: `Réputation ${u.minRep} requise.` };
-  const total = Math.round(u.cost * 1.21);
+  const total = Math.round(upgradeCost(state, u) * 1.21);
   if (state.cash - total < -state.finance.overdraftLimit) return { ok: false, reason: 'Trésorerie insuffisante.' };
   return { ok: true, total };
+}
+
+/** Prix HT d'une amélioration (remise d'événement éventuelle). */
+function upgradeCost(state, u) {
+  const d = state.flags.upgradeDiscount;
+  if (d && d.until > state.time.day && d.cat === u.cat) return Math.round(u.cost * (1 - d.pct));
+  return u.cost;
 }
 
 function buyUpgrade(state, id) {
   const c = canBuyUpgrade(state, id);
   if (!c.ok) return c;
   const u = upgradeList(state).find((x) => x.id === id);
-  spend(state, u.cost, 0.21, 'investissement', { capex: true, label: u.label });
+  const cost = upgradeCost(state, u);
+  if (cost < u.cost) state.flags.upgradeDiscount = null;
+  spend(state, cost, 0.21, 'investissement', { capex: true, label: u.label });
   state.upgrades.owned.push(id);
   state.stats.upgradesBought = (state.stats.upgradesBought || 0) + 1;
   log(state, 'good', `Amélioration acquise : ${u.label}.`);
@@ -1358,8 +1367,105 @@ function monthlyFixedCosts(state) {
 
 function monthEnd(state) {
   for (const f of monthlyFixedCosts(state)) spend(state, f.amount, f.vat, f.cat);
+  // Hausses de charges fixes dues aux événements (assurance, indexation du loyer…)
+  if (state.company.extraFixed > 0) spend(state, state.company.extraFixed, 0, 'autres');
   payUpgradeMonthly(state);
 }
+return __exports;
+})();
+
+// ---- src/data/competitors.js ----
+__m["src/data/competitors.js"] = (function () {
+const __exports = {};
+__def(__exports, { "STRATEGIES": () => STRATEGIES, "COMPETITOR_PARAMS": () => COMPETITOR_PARAMS });
+// Stratégies des concurrents IA.
+// priceIdx = prix / prix de référence ; mkt = budget marketing en multiple du budget de référence.
+
+const STRATEGIES = {
+  lowcost: {
+    id: 'lowcost', label: 'Bas prix', desc: 'Casse les prix, qualité moyenne. Baisse encore ses prix si tu lui prends des clients.',
+    priceIdx: 0.8, quality: 0.85, mkt: 0.8, rep: 40, margin: 0.18, promoChance: 0.06,
+  },
+  premium: {
+    id: 'premium', label: 'Premium', desc: 'Cher mais excellent, soigne sa réputation.',
+    priceIdx: 1.3, quality: 1.25, mkt: 1, rep: 55, margin: 0.32, promoChance: 0.02,
+  },
+  marketing: {
+    id: 'marketing', label: 'Agressif en marketing', desc: 'Gros budget publicitaire et promotions fréquentes.',
+    priceIdx: 0.98, quality: 0.95, mkt: 3, rep: 45, margin: 0.2, promoChance: 0.16,
+  },
+  suiveur: {
+    id: 'suiveur', label: 'Suiveur', desc: 'Copie tes prix et ta qualité avec un temps de retard.',
+    priceIdx: 1, quality: 1, mkt: 1.2, rep: 45, margin: 0.22, promoChance: 0.05,
+  },
+};
+
+const COMPETITOR_PARAMS = {
+  startCashMonths: 6, // trésorerie de départ en mois de CA estimé
+  bankruptCashMonths: -3, // faillite sous -3 mois de CA
+  respawnDays: [150, 400], // délai avant l'arrivée d'un nouvel entrant
+  promoDays: 14,
+  promoDiscount: 0.82,
+};
+return __exports;
+})();
+
+// ---- src/data/people.js ----
+__m["src/data/people.js"] = (function () {
+const __exports = {};
+__def(__exports, { "FIRST_NAMES": () => FIRST_NAMES, "LAST_NAMES": () => LAST_NAMES, "TRAITS": () => TRAITS, "COMMON_ROLES": () => COMMON_ROLES, "COMPETITOR_NAMES": () => COMPETITOR_NAMES });
+// Noms, caractères et rôles communs des employés.
+
+const FIRST_NAMES = [
+  'Lucas', 'Emma', 'Noah', 'Louise', 'Arthur', 'Olivia', 'Jules', 'Mila', 'Adam', 'Alice',
+  'Liam', 'Léa', 'Victor', 'Lina', 'Nathan', 'Juliette', 'Mohamed', 'Inès', 'Thomas', 'Sarah',
+  'Wout', 'Lotte', 'Sem', 'Fien', 'Yasmine', 'Elif', 'Mehdi', 'Kevin', 'Laura', 'Julie',
+  'Maxime', 'Manon', 'Robin', 'Chloé', 'Hugo', 'Zoé', 'Bram', 'Nina', 'Amir', 'Camille',
+  'Sacha', 'Margaux', 'Ibrahim', 'Charlotte', 'Tom', 'Elena', 'Simon', 'Aya', 'Jasper', 'Nour',
+];
+
+const LAST_NAMES = [
+  'Peeters', 'Janssens', 'Maes', 'Jacobs', 'Dubois', 'Lambert', 'Dupont', 'Martin', 'Claes', 'Goossens',
+  'Wouters', 'De Smet', 'Mertens', 'Willems', 'Leclercq', 'Renard', 'Simon', 'Laurent', 'Lejeune', 'Hermans',
+  'El Amrani', 'Benali', 'Yilmaz', 'Nowak', 'Dumont', 'Michel', 'François', 'Lemaire', 'Van Damme', 'Declercq',
+  'Wauters', 'Pirlot', 'Delvaux', 'Collignon', 'Fontaine', 'Gilson', 'Mahieu', 'Bastin', 'Diallo', 'Rossi',
+];
+
+/**
+ * Caractères. Multiplicateurs : prod (productivité), quality (qualité),
+ * resign (risque de démission), motivation (bonus de motivation cible),
+ * learn (gain de formation).
+ */
+const TRAITS = {
+  fiable: { label: 'Fiable', desc: 'Régulier, rarement absent.', prod: 1.03, quality: 1.02, resign: 0.7, motivation: 4, learn: 1 },
+  rapide: { label: 'Rapide', desc: 'Abat beaucoup de travail, parfois au détriment de la finition.', prod: 1.15, quality: 0.94, resign: 1, motivation: 0, learn: 1 },
+  perfectionniste: { label: 'Perfectionniste', desc: 'Travail impeccable mais plus lent.', prod: 0.9, quality: 1.12, resign: 1, motivation: 0, learn: 1 },
+  raleur: { label: 'Râleur', desc: 'Compétent mais plombe l’ambiance.', prod: 1, quality: 1, resign: 1.3, motivation: -8, learn: 1, teamMorale: -3 },
+  ambitieux: { label: 'Ambitieux', desc: 'Progresse vite, part si on ne l’augmente pas.', prod: 1.05, quality: 1, resign: 1.6, motivation: -2, learn: 1.6 },
+  loyal: { label: 'Loyal', desc: 'Reste dans les moments difficiles.', prod: 1, quality: 1, resign: 0.35, motivation: 6, learn: 0.9 },
+  creatif: { label: 'Créatif', desc: 'Idées originales, qualité en hausse.', prod: 0.97, quality: 1.08, resign: 1.1, motivation: 2, learn: 1.1 },
+  distrait: { label: 'Distrait', desc: 'Sympathique mais fait des erreurs.', prod: 0.9, quality: 0.93, resign: 0.9, motivation: 3, learn: 0.9 },
+};
+
+/** Rôle commun à tous les secteurs. */
+const COMMON_ROLES = {
+  gerant: {
+    id: 'gerant',
+    label: 'Gérant·e',
+    baseSalary: 450_000,
+    skillRange: [45, 90],
+    max: 1,
+    desc: 'Dirige l’opérationnel. Indispensable pour te retirer et transformer l’entreprise en revenu passif. +5 % de productivité d’équipe.',
+  },
+};
+
+const COMPETITOR_NAMES = {
+  agence: ['PixelForge', 'WebWallonie', 'Studio Atomium', 'CodeBrabant', 'Digitaal & Co', 'Agence Meuse', 'ByteBrussels', 'Nébuleuse Web'],
+  restaurant: ['Fritkot Manneken', 'Chez Raymond', 'La Baraque à Frites', 'Snack Atomium', 'Friterie de la Gare', 'Burger Bruxellois', 'Le Cornet d’Or', 'Frituur Sint-Jan'],
+  ecommerce: ['BelgaShop', 'Boutik.be', 'Colis & Cie', 'Webwinkel Plus', 'MegaDeal BE', 'Panier Futé', 'ShopLiège', 'Clic & Gaufre'],
+  artisan: ['Plomberie Dumont', 'Élec Services', 'Renov’Pro', 'Techni-Habitat', 'Dépann’Express', 'Installateurs Réunis', 'Maes & Fils', 'Chauffage Lemaire'],
+  soutien: ['Cap Réussite', 'Blocus Academy', 'Les Profs du Quartier', 'Studia Plus', 'Remédiation & Co', 'Bulle d’Étude', 'Skolar', 'Objectif CEB'],
+};
 return __exports;
 })();
 
@@ -1422,65 +1528,6 @@ function playerShare(state, playerA) {
   const total = playerA + comp + ECONOMY.outsideOption;
   return total > 0 ? playerA / total : 0;
 }
-return __exports;
-})();
-
-// ---- src/data/people.js ----
-__m["src/data/people.js"] = (function () {
-const __exports = {};
-__def(__exports, { "FIRST_NAMES": () => FIRST_NAMES, "LAST_NAMES": () => LAST_NAMES, "TRAITS": () => TRAITS, "COMMON_ROLES": () => COMMON_ROLES, "COMPETITOR_NAMES": () => COMPETITOR_NAMES });
-// Noms, caractères et rôles communs des employés.
-
-const FIRST_NAMES = [
-  'Lucas', 'Emma', 'Noah', 'Louise', 'Arthur', 'Olivia', 'Jules', 'Mila', 'Adam', 'Alice',
-  'Liam', 'Léa', 'Victor', 'Lina', 'Nathan', 'Juliette', 'Mohamed', 'Inès', 'Thomas', 'Sarah',
-  'Wout', 'Lotte', 'Sem', 'Fien', 'Yasmine', 'Elif', 'Mehdi', 'Kevin', 'Laura', 'Julie',
-  'Maxime', 'Manon', 'Robin', 'Chloé', 'Hugo', 'Zoé', 'Bram', 'Nina', 'Amir', 'Camille',
-  'Sacha', 'Margaux', 'Ibrahim', 'Charlotte', 'Tom', 'Elena', 'Simon', 'Aya', 'Jasper', 'Nour',
-];
-
-const LAST_NAMES = [
-  'Peeters', 'Janssens', 'Maes', 'Jacobs', 'Dubois', 'Lambert', 'Dupont', 'Martin', 'Claes', 'Goossens',
-  'Wouters', 'De Smet', 'Mertens', 'Willems', 'Leclercq', 'Renard', 'Simon', 'Laurent', 'Lejeune', 'Hermans',
-  'El Amrani', 'Benali', 'Yilmaz', 'Nowak', 'Dumont', 'Michel', 'François', 'Lemaire', 'Van Damme', 'Declercq',
-  'Wauters', 'Pirlot', 'Delvaux', 'Collignon', 'Fontaine', 'Gilson', 'Mahieu', 'Bastin', 'Diallo', 'Rossi',
-];
-
-/**
- * Caractères. Multiplicateurs : prod (productivité), quality (qualité),
- * resign (risque de démission), motivation (bonus de motivation cible),
- * learn (gain de formation).
- */
-const TRAITS = {
-  fiable: { label: 'Fiable', desc: 'Régulier, rarement absent.', prod: 1.03, quality: 1.02, resign: 0.7, motivation: 4, learn: 1 },
-  rapide: { label: 'Rapide', desc: 'Abat beaucoup de travail, parfois au détriment de la finition.', prod: 1.15, quality: 0.94, resign: 1, motivation: 0, learn: 1 },
-  perfectionniste: { label: 'Perfectionniste', desc: 'Travail impeccable mais plus lent.', prod: 0.9, quality: 1.12, resign: 1, motivation: 0, learn: 1 },
-  raleur: { label: 'Râleur', desc: 'Compétent mais plombe l’ambiance.', prod: 1, quality: 1, resign: 1.3, motivation: -8, learn: 1, teamMorale: -3 },
-  ambitieux: { label: 'Ambitieux', desc: 'Progresse vite, part si on ne l’augmente pas.', prod: 1.05, quality: 1, resign: 1.6, motivation: -2, learn: 1.6 },
-  loyal: { label: 'Loyal', desc: 'Reste dans les moments difficiles.', prod: 1, quality: 1, resign: 0.35, motivation: 6, learn: 0.9 },
-  creatif: { label: 'Créatif', desc: 'Idées originales, qualité en hausse.', prod: 0.97, quality: 1.08, resign: 1.1, motivation: 2, learn: 1.1 },
-  distrait: { label: 'Distrait', desc: 'Sympathique mais fait des erreurs.', prod: 0.9, quality: 0.93, resign: 0.9, motivation: 3, learn: 0.9 },
-};
-
-/** Rôle commun à tous les secteurs. */
-const COMMON_ROLES = {
-  gerant: {
-    id: 'gerant',
-    label: 'Gérant·e',
-    baseSalary: 450_000,
-    skillRange: [45, 90],
-    max: 1,
-    desc: 'Dirige l’opérationnel. Indispensable pour te retirer et transformer l’entreprise en revenu passif. +5 % de productivité d’équipe.',
-  },
-};
-
-const COMPETITOR_NAMES = {
-  agence: ['PixelForge', 'WebWallonie', 'Studio Atomium', 'CodeBrabant', 'Digitaal & Co', 'Agence Meuse', 'ByteBrussels', 'Nébuleuse Web'],
-  restaurant: ['Fritkot Manneken', 'Chez Raymond', 'La Baraque à Frites', 'Snack Atomium', 'Friterie de la Gare', 'Burger Bruxellois', 'Le Cornet d’Or', 'Frituur Sint-Jan'],
-  ecommerce: ['BelgaShop', 'Boutik.be', 'Colis & Cie', 'Webwinkel Plus', 'MegaDeal BE', 'Panier Futé', 'ShopLiège', 'Clic & Gaufre'],
-  artisan: ['Plomberie Dumont', 'Élec Services', 'Renov’Pro', 'Techni-Habitat', 'Dépann’Express', 'Installateurs Réunis', 'Maes & Fils', 'Chauffage Lemaire'],
-  soutien: ['Cap Réussite', 'Blocus Academy', 'Les Profs du Quartier', 'Studia Plus', 'Remédiation & Co', 'Bulle d’Étude', 'Skolar', 'Objectif CEB'],
-};
 return __exports;
 })();
 
@@ -1764,7 +1811,7 @@ return __exports;
 // ---- src/engine/sectors/agence.js ----
 __m["src/engine/sectors/agence.js"] = (function () {
 const __exports = {};
-__def(__exports, { "init": () => init, "hoursPerDay": () => hoursPerDay, "quality": () => quality, "backlogHours": () => backlogHours, "refPrice": () => refPrice, "playerAttraction": () => playerAttraction, "leadRate": () => leadRate, "leadAffordable": () => leadAffordable, "acceptLead": () => acceptLead, "declineLead": () => declineLead, "startSaas": () => startSaas, "daily": () => daily, "monthEnd": () => monthEnd, "recurringRevenue": () => recurringRevenue, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "actions": () => actions, "onUpgrade": () => onUpgrade });
+__def(__exports, { "init": () => init, "hoursPerDay": () => hoursPerDay, "quality": () => quality, "backlogHours": () => backlogHours, "refPrice": () => refPrice, "playerAttraction": () => playerAttraction, "leadRate": () => leadRate, "leadAffordable": () => leadAffordable, "acceptLead": () => acceptLead, "declineLead": () => declineLead, "startSaas": () => startSaas, "daily": () => daily, "monthEnd": () => monthEnd, "marketValue": () => marketValue, "priceIndex": () => priceIndex, "recurringRevenue": () => recurringRevenue, "kpis": () => kpis, "sceneInfo": () => sceneInfo, "eventOp": () => eventOp, "actions": () => actions, "onUpgrade": () => onUpgrade });
 // Secteur agence web : leads → projets → heures → factures (+ maintenance, SaaS).
 
 const { AGENCE: D } = __m["src/data/sectors/agence.js"];
@@ -2137,6 +2184,17 @@ function monthEnd(state, rng) {
   }
 }
 
+/** Valeur mensuelle approximative du marché local (pour les concurrents). */
+function marketValue(state) {
+  const diff = DIFFICULTIES[state.meta.difficulty];
+  return D.marketLeads * diff.marketMult * WORKDAYS_PER_MONTH * 70 * refPrice(state) * economyIndex(state);
+}
+
+/** Prix du joueur relatif au marché (1 = prix de référence). */
+function priceIndex(state) {
+  return state.sector.rate / refPrice(state);
+}
+
 /** Revenu récurrent mensuel (maintenance + SaaS), HT. */
 function recurringRevenue(state) {
   const s = state.sector;
@@ -2166,6 +2224,27 @@ function sceneInfo(state) {
     customers: Math.min(6, s.leads.length + s.projects.length),
     workers: state.staff.employees.length + (state.staff.founder.active ? 1 : 0),
   };
+}
+
+/** Opérations d'événements propres à l'agence. */
+function eventOp(state, e) {
+  const s = state.sector;
+  if (e.op === 'bigProject') {
+    s.projSeq += 1;
+    const rate = Math.round(s.rate * (e.rateMult || 1));
+    s.projects.push({
+      id: s.projSeq, client: 'Marché public', label: 'Portail communal', hoursEst: e.hours, hoursReal: Math.round(e.hours * 1.1),
+      done: 0, price: e.hours * rate, deposit: 0, start: state.time.day, deadlineDay: state.time.day + 150, internal: false,
+    });
+  } else if (e.op === 'scopeCreep') {
+    const p = s.projects.find((x) => !x.internal);
+    if (p) {
+      p.hoursReal += Math.round(p.hoursEst * e.pct);
+      if (e.paid) p.price += Math.round(p.hoursEst * e.pct * s.rate);
+    }
+  } else if (e.op === 'saasBoost') {
+    if (s.saas.status === 'live') s.saas.subscribers += e.n;
+  }
 }
 
 const actions = {
@@ -2221,6 +2300,175 @@ function sectorModule(state) {
 return __exports;
 })();
 
+// ---- src/engine/systems/competitors.js ----
+__m["src/engine/systems/competitors.js"] = (function () {
+const __exports = {};
+__def(__exports, { "init": () => init, "playerPriceIndex": () => playerPriceIndex, "updateAttraction": () => updateAttraction, "daily": () => daily, "monthEnd": () => monthEnd, "spawnCompetitor": () => spawnCompetitor });
+// Concurrents IA : stratégies, ajustements mensuels, promos, faillites, nouveaux entrants.
+
+const { STRATEGIES, COMPETITOR_PARAMS: P } = __m["src/data/competitors.js"];
+const { COMPETITOR_NAMES } = __m["src/data/people.js"];
+const { DIFFICULTIES } = __m["src/data/difficulty.js"];
+const { sectorData } = __m["src/engine/sectors/registry.js"];
+const { sectorModule } = __m["src/engine/sectors/index.js"];
+const { attractiveness } = __m["src/engine/demand.js"];
+const { ECONOMY } = __m["src/data/economy.js"];
+const { clamp } = __m["src/engine/money.js"];
+const { log } = __m["src/engine/log.js"];
+
+function aggression(state) {
+  return DIFFICULTIES[state.meta.difficulty].competitorAggression;
+}
+
+function marketValue(state) {
+  const m = sectorModule(state);
+  return m.marketValue ? m.marketValue(state) : 3_000_000;
+}
+
+function makeCompetitor(state, rng, strategyId, used) {
+  const names = COMPETITOR_NAMES[state.meta.sector] || COMPETITOR_NAMES.agence;
+  const free = names.filter((n) => !used.includes(n));
+  const st = STRATEGIES[strategyId];
+  state.compSeq = (state.compSeq || 0) + 1;
+  return {
+    id: state.compSeq,
+    name: rng.pick(free.length ? free : names),
+    strategy: strategyId,
+    priceIdx: st.priceIdx * rng.range(0.95, 1.05),
+    quality: st.quality * rng.range(0.92, 1.08),
+    reputation: clamp(st.rep + rng.range(-8, 8), 10, 90),
+    mkt: st.mkt * rng.range(0.8, 1.2),
+    cash: Math.round(marketValue(state) * 0.3 * P.startCashMonths),
+    alive: true,
+    attraction: 1,
+    share: 0,
+    promoUntil: -1,
+    born: state.time.day,
+  };
+}
+
+function init(state, opts, diff, rng) {
+  const [lo, hi] = diff.competitorCount;
+  const n = rng.int(lo, hi);
+  const ids = Object.keys(STRATEGIES);
+  // stratégies distinctes autant que possible
+  const order = [...ids].sort(() => rng.next() - 0.5);
+  state.competitors = [];
+  for (let i = 0; i < n; i++) {
+    state.competitors.push(makeCompetitor(state, rng, order[i % order.length], state.competitors.map((c) => c.name)));
+  }
+  state.compRespawnDay = null;
+  updateAttraction(state);
+}
+
+/** Prix « relatif » du joueur (1 = prix de référence du marché). */
+function playerPriceIndex(state) {
+  const m = sectorModule(state);
+  return m.priceIndex ? m.priceIndex(state) : 1;
+}
+
+function updateAttraction(state) {
+  const sd = sectorData(state);
+  const day = state.time.day;
+  for (const c of state.competitors) {
+    if (!c.alive) {
+      c.attraction = 0;
+      continue;
+    }
+    const promo = c.promoUntil > day ? P.promoDiscount : 1;
+    c.attraction = attractiveness({
+      price: c.priceIdx * promo,
+      refPrice: 1,
+      elasticity: sd.elasticity,
+      quality: c.quality,
+      reputation: c.reputation,
+      marketing: c.mkt,
+      marketingRef: 1,
+    }).value;
+  }
+  // parts de marché observables (joueur inclus)
+  const pa = state.company.attraction || 0;
+  const total = pa + state.competitors.reduce((s, c) => s + c.attraction, 0) + ECONOMY.outsideOption;
+  for (const c of state.competitors) c.share = total > 0 ? c.attraction / total : 0;
+}
+
+function daily(state) {
+  // Fin de promo → recalcul
+  const day = state.time.day;
+  if (state.competitors.some((c) => c.promoUntil === day)) updateAttraction(state);
+}
+
+function monthEnd(state, rng) {
+  const a = aggression(state);
+  const pShare = state.company.share || 0;
+  const pIdx = playerPriceIndex(state);
+  const mv = marketValue(state);
+  for (const c of state.competitors) {
+    if (!c.alive) continue;
+    const st = STRATEGIES[c.strategy];
+    // Ajustements selon la stratégie
+    if (c.strategy === 'lowcost') {
+      const target = pShare > c.share ? st.priceIdx - 0.06 * a : st.priceIdx;
+      c.priceIdx += (target - c.priceIdx) * 0.25;
+      c.priceIdx = clamp(c.priceIdx, 0.62, 1);
+    } else if (c.strategy === 'premium') {
+      c.quality = Math.min(1.5, c.quality + 0.004 * a);
+      c.priceIdx += (st.priceIdx - c.priceIdx) * 0.2;
+    } else if (c.strategy === 'marketing') {
+      c.mkt += (st.mkt * a * (pShare > 0.3 ? 1.4 : 1) - c.mkt) * 0.3;
+    } else if (c.strategy === 'suiveur') {
+      c.priceIdx += (pIdx * 0.97 - c.priceIdx) * 0.3;
+      c.quality += ((state.company.quality || 1) * 0.97 - c.quality) * 0.15;
+    }
+    // Réactions générales à un joueur dominant
+    if (pShare > 0.4 && rng.chance(0.12 * a)) {
+      c.mkt *= 1.15;
+      c.quality = Math.min(1.5, c.quality + 0.03);
+    }
+    // Promotions
+    if (c.promoUntil < state.time.day && rng.chance(st.promoChance * a)) {
+      c.promoUntil = state.time.day + P.promoDays;
+      log(state, 'market', `${c.name} lance une promotion agressive (−${Math.round((1 - P.promoDiscount) * 100)} % pendant ${P.promoDays} jours).`);
+    }
+    // Réputation : suit la qualité
+    c.reputation = clamp(c.reputation + (50 + (c.quality - 1) * 60 - c.reputation) * 0.05 + rng.normal(0, 1.2), 5, 95);
+    // Résultat financier simulé
+    const revenue = c.share * mv * c.priceIdx;
+    const margin = st.margin + (c.priceIdx - st.priceIdx) * 0.6;
+    const fixed = mv * 0.03 + c.mkt * sectorData(state).marketingRef;
+    c.cash += Math.round(revenue * margin - fixed + rng.normal(0, mv * 0.01));
+    c.lastRevenue = Math.round(revenue);
+    if (c.cash < mv * P.bankruptCashMonths * 0.3) {
+      c.alive = false;
+      c.deadDay = state.time.day;
+      state.stats.competitorsBankrupt = (state.stats.competitorsBankrupt || 0) + 1;
+      log(state, 'market', `${c.name} fait faillite ! Ses clients cherchent un nouveau fournisseur.`, true);
+      if (state.compRespawnDay == null) state.compRespawnDay = state.time.day + rng.int(P.respawnDays[0], P.respawnDays[1]);
+    }
+  }
+  // Nouvel entrant
+  const alive = state.competitors.filter((c) => c.alive).length;
+  const min = DIFFICULTIES[state.meta.difficulty].competitorCount[0];
+  if (state.compRespawnDay != null && state.time.day >= state.compRespawnDay && alive < min + 1) {
+    spawnCompetitor(state, rng);
+    state.compRespawnDay = alive + 1 < min ? state.time.day + rng.int(P.respawnDays[0], P.respawnDays[1]) : null;
+  }
+  // Nettoyage des concurrents morts depuis longtemps
+  state.competitors = state.competitors.filter((c) => c.alive || state.time.day - c.deadDay < 360);
+  updateAttraction(state);
+}
+
+function spawnCompetitor(state, rng, strategyId) {
+  const id = strategyId || rng.pick(Object.keys(STRATEGIES));
+  const c = makeCompetitor(state, rng, id, state.competitors.map((x) => x.name));
+  state.competitors.push(c);
+  log(state, 'market', `Nouveau concurrent : ${c.name} (${STRATEGIES[id].label.toLowerCase()}) s'installe sur ton marché.`, true);
+  updateAttraction(state);
+  return c;
+}
+return __exports;
+})();
+
 // ---- src/engine/systems/sector.js ----
 __m["src/engine/systems/sector.js"] = (function () {
 const __exports = {};
@@ -2241,6 +2489,817 @@ function monthEnd(state, rng) {
   const m = sectorModule(state);
   if (m.monthEnd) m.monthEnd(state, rng);
 }
+return __exports;
+})();
+
+// ---- src/data/events.js ----
+__m["src/data/events.js"] = (function () {
+const __exports = {};
+__def(__exports, { "EVENT_PARAMS": () => EVENT_PARAMS, "EVENTS": () => EVENTS });
+// =============================================================================
+//  Événements aléatoires (82). Effets DÉCLARATIFS interprétés par
+//  src/engine/events.js. Montants en centimes ; un montant peut être relatif :
+//  { of: 'revenue'|'cash'|'payroll', f: facteur, min, max }.
+//
+//  Champs : id, title, text, kind ('good'|'bad'|'neutral'), weight, cooldown
+//  (jours), sectors, legal, minDay, once, when(state), target ('employee',
+//  'keyEmployee', 'competitor'), choices [{label, effects}] OU effects,
+//  botChoice (choix « raisonnable » utilisé par les bots), chainOnly.
+//
+//  Types d'effets : cash, personal, rep, sat, mod {key, mult, days}, motivation,
+//  loseEmployee, employeeSkill, employeeRaise, employeeAbsent, salaryIndex,
+//  candidate, fixedCost, chain {id, days}, flag, flagUntil, economyTrend,
+//  baseRate, competitorPromo, competitorBankrupt, newCompetitor, investorOffer,
+//  founderEnergy, stat, sector {op…}, chance {p, success, fail}, log.
+// =============================================================================
+
+const EVENT_PARAMS = {
+  dailyChance: 0.05, // probabilité quotidienne de base (× fréquence de la difficulté)
+  minGapDays: 7, // délai minimal entre deux événements aléatoires
+  firstEventDay: 25, // pas d'événement aléatoire le premier mois
+  defaultCooldown: 360,
+};
+
+const REV = (f, min, max) => ({ of: 'revenue', f, min, max });
+const cash = (amount, cat) => ({ t: 'cash', amount, cat });
+const rep = (v) => ({ t: 'rep', v });
+const mod = (key, mult, days, label) => ({ t: 'mod', key, mult, days, label });
+const chance = (p, success, fail, successText, failText) => ({ t: 'chance', p, success, fail, successText, failText });
+
+const hasEmployees = (s) => s.staff.employees.length > 0;
+
+const EVENTS = [
+  // ===========================================================================
+  //  COMMUNS
+  // ===========================================================================
+  {
+    id: 'bouche_a_oreille', kind: 'good', weight: 3, cooldown: 120,
+    title: 'Bon bouche-à-oreille',
+    text: 'Des clients satisfaits parlent de toi autour d’eux. Les demandes affluent.',
+    when: (s) => s.company.satisfaction > 62,
+    effects: [rep(3), mod('demand', 1.15, 30, 'Bouche-à-oreille')],
+  },
+  {
+    id: 'avis_negatif', kind: 'bad', weight: 2, cooldown: 200,
+    title: 'Avis négatif viral',
+    text: 'Un client mécontent publie un avis cinglant qui fait le tour des réseaux sociaux locaux.',
+    botChoice: 1,
+    choices: [
+      { label: 'Ignorer, ça passera', effects: [rep(-6), mod('demand', 0.85, 30, 'Avis viral')] },
+      { label: 'Répondre publiquement et offrir un geste commercial', effects: [cash(-25_000, 'evenements'), rep(-2), mod('demand', 0.95, 15, 'Avis viral')] },
+      { label: 'Menacer de porter plainte', effects: [chance(0.3, [rep(1)], [rep(-10), mod('demand', 0.8, 45, 'Effet Streisand')], 'L’auteur retire son avis.', 'Effet Streisand : l’affaire prend de l’ampleur !')] },
+    ],
+  },
+  {
+    id: 'panne_informatique', kind: 'bad', weight: 2, cooldown: 240,
+    title: 'Panne informatique',
+    text: 'Ton ordinateur principal rend l’âme en plein rush.',
+    botChoice: 0,
+    choices: [
+      { label: 'Racheter tout de suite du matériel (1 200 €)', effects: [cash(-120_000, 'materiel'), mod('productivity', 0.95, 3, 'Panne informatique')] },
+      { label: 'Bricoler avec un vieux PC', effects: [mod('productivity', 0.75, 20, 'Vieux PC')] },
+    ],
+  },
+  {
+    id: 'hausse_energie', kind: 'bad', weight: 1.5, cooldown: 360,
+    title: 'Flambée des prix de l’énergie',
+    text: 'Les prix du gaz et de l’électricité s’envolent sur les marchés européens.',
+    effects: [mod('energy', 1.6, 120, 'Prix de l’énergie')],
+  },
+  {
+    id: 'greve_nationale', kind: 'bad', weight: 1.5, cooldown: 180,
+    title: 'Grève nationale',
+    text: 'Les syndicats bloquent le pays une journée : transports à l’arrêt, clients absents.',
+    effects: [mod('demand', 0.6, 2, 'Grève nationale'), mod('productivity', 0.7, 2, 'Grève nationale')],
+  },
+  {
+    id: 'controle_fiscal', kind: 'bad', weight: 1, cooldown: 720, minDay: 400,
+    title: 'Contrôle fiscal',
+    text: 'Le SPF Finances t’annonce un contrôle de tes comptes des deux dernières années.',
+    botChoice: 1,
+    choices: [
+      {
+        label: 'Coopérer avec ton comptable habituel',
+        effects: [chance(0.6, [{ t: 'stat', key: 'taxAuditsSurvived' }], [cash(REV(0.25, 80_000, 2_500_000), 'amendes'), rep(-2)], 'Contrôle sans redressement : tes comptes sont propres.', 'Redressement fiscal : quelques dépenses rejetées et une amende.')],
+      },
+      {
+        label: 'Engager un fiscaliste spécialisé (1 800 €)',
+        effects: [cash(-180_000, 'comptable'), chance(0.88, [{ t: 'stat', key: 'taxAuditsSurvived' }], [cash(REV(0.12, 50_000, 1_200_000), 'amendes')], 'Ton fiscaliste défend parfaitement le dossier.', 'Malgré le fiscaliste, un petit redressement.')],
+      },
+    ],
+  },
+  {
+    id: 'inspection_sociale', kind: 'bad', weight: 1, cooldown: 720, minDay: 200,
+    title: 'Inspection sociale (ONSS)',
+    text: 'Les inspecteurs sociaux vérifient tes contrats, horaires et déclarations Dimona.',
+    when: hasEmployees,
+    effects: [chance(0.7, [{ t: 'stat', key: 'socialAuditsSurvived' }], [cash({ of: 'payroll', f: 0.4, min: 60_000, max: 1_500_000 }, 'amendes')], 'Inspection sociale : tout est en ordre.', 'Inspection sociale : irrégularités dans les horaires, amende administrative.')],
+  },
+  {
+    id: 'subvention_regionale', kind: 'good', weight: 1.2, cooldown: 540, minDay: 120,
+    title: 'Aide régionale à l’investissement',
+    text: 'La Région propose une prime aux PME qui investissent. Le dossier est long à monter.',
+    botChoice: 0,
+    choices: [
+      { label: 'Monter le dossier (10 jours de ton temps)', effects: [{ t: 'founderEnergy', v: -10 }, mod('productivity', 0.9, 10, 'Dossier de subvention'), { t: 'chain', id: 'subvention_versee', days: 75, hint: 'Réponse dans ≈ 2,5 mois (75 % de chances).' }] },
+      { label: 'Laisser tomber', effects: [] },
+    ],
+  },
+  {
+    id: 'subvention_versee', kind: 'good', chainOnly: true,
+    title: 'Réponse de la Région',
+    text: 'L’administration régionale a examiné ton dossier.',
+    effects: [chance(0.75, [cash({ of: 'revenue', f: 0.5, min: 200_000, max: 1_500_000 }, 'subvention')], [], 'Prime accordée et versée sur ton compte !', 'Dossier refusé : critères non remplis.')],
+  },
+  {
+    id: 'crise_economique', kind: 'bad', weight: 0.6, cooldown: 1800, minDay: 360,
+    title: 'Crise économique',
+    text: 'Récession en Europe : les ménages et les entreprises serrent la ceinture.',
+    effects: [{ t: 'economyTrend', v: -0.004 }, mod('demand', 0.85, 240, 'Récession'), { t: 'flag', key: 'crisis' }, { t: 'chain', id: 'reprise_economique', days: 300 }],
+  },
+  {
+    id: 'reprise_economique', kind: 'good', weight: 0.5, cooldown: 900,
+    title: 'Reprise économique',
+    text: 'La confiance revient, les carnets de commandes se remplissent.',
+    when: (s) => s.world.economy < 1.02,
+    effects: [{ t: 'economyTrend', v: 0.003 }, mod('demand', 1.08, 120, 'Reprise'), { t: 'stat', key: 'crisesSurvived' }],
+  },
+  {
+    id: 'canicule', kind: 'neutral', weight: 1.2, cooldown: 300,
+    title: 'Canicule',
+    text: 'Plus de 35 °C pendant une semaine. Tout le monde tourne au ralenti.',
+    when: (s) => [5, 6, 7].includes(Math.floor((s.time.day % 360) / 30)),
+    effects: [mod('productivity', 0.85, 7, 'Canicule'), { t: 'sector', op: 'heatwave' }],
+  },
+  {
+    id: 'vague_froid', kind: 'neutral', weight: 1.2, cooldown: 300,
+    title: 'Vague de froid',
+    text: 'Gel intense et neige : les routes sont glissantes, les chaudières lâchent.',
+    when: (s) => [0, 1, 11].includes(Math.floor((s.time.day % 360) / 30)),
+    effects: [mod('energy', 1.3, 20, 'Grand froid'), { t: 'sector', op: 'coldwave' }],
+  },
+  {
+    id: 'inondation', kind: 'bad', weight: 0.5, cooldown: 1080,
+    title: 'Inondation',
+    text: 'Des pluies diluviennes inondent ton rez-de-chaussée.',
+    botChoice: 0,
+    choices: [
+      { label: 'Faire appel à l’assurance (franchise 600 €)', effects: [cash(-60_000, 'evenements'), mod('capacity', 0.6, 10, 'Inondation'), mod('demand', 0.8, 10, 'Inondation')] },
+      { label: 'Tout nettoyer toi-même', effects: [{ t: 'founderEnergy', v: -20 }, mod('capacity', 0.5, 20, 'Inondation'), cash(-20_000, 'evenements')] },
+    ],
+  },
+  {
+    id: 'cambriolage', kind: 'bad', weight: 0.8, cooldown: 720,
+    title: 'Cambriolage',
+    text: 'Des voleurs sont passés cette nuit : matériel et caisse envolés.',
+    botChoice: 0,
+    choices: [
+      { label: 'Déclarer à l’assurance (franchise 400 €)', effects: [cash(-40_000, 'evenements'), mod('productivity', 0.9, 5, 'Cambriolage')] },
+      { label: 'Installer en plus une alarme (1 500 €)', effects: [cash(-190_000, 'materiel'), { t: 'flag', key: 'alarm' }] },
+    ],
+  },
+  {
+    id: 'litige_client', kind: 'bad', weight: 1.2, cooldown: 300, minDay: 90,
+    title: 'Litige avec un client',
+    text: 'Un client conteste ta facture et menace d’aller au tribunal de l’entreprise.',
+    botChoice: 0,
+    choices: [
+      { label: 'Négocier un rabais de 50 %', effects: [cash(REV(-0.08, -400_000, -20_000), 'evenements')] },
+      { label: 'Aller au tribunal (avocat 1 500 €)', effects: [cash(-150_000, 'evenements'), chance(0.55, [cash(REV(0.15, 50_000, 800_000), 'autres_revenus')], [cash(REV(-0.1, -600_000, -30_000), 'amendes'), rep(-2)], 'Le tribunal te donne raison !', 'Tu perds le procès et paies les frais.')] },
+    ],
+  },
+  {
+    id: 'demission_cle', kind: 'bad', weight: 1.5, cooldown: 240, target: 'keyEmployee',
+    title: '{employee} veut partir',
+    text: '{employee}, ton élément le plus compétent, a reçu une offre d’un concurrent.',
+    when: (s) => s.staff.employees.length >= 2,
+    botChoice: 0,
+    choices: [
+      { label: 'Contre-offre : +15 % de salaire', effects: [{ t: 'employeeRaise', pct: 0.15 }] },
+      { label: 'Le/la laisser partir', effects: [{ t: 'loseEmployee' }, { t: 'motivation', v: -4 }] },
+    ],
+  },
+  {
+    id: 'maladie_longue', kind: 'bad', weight: 1, cooldown: 300, target: 'employee',
+    title: 'Maladie de longue durée',
+    text: '{employee} est en incapacité de travail pour plusieurs semaines. Tu paies le salaire garanti du premier mois.',
+    when: hasEmployees,
+    effects: [{ t: 'employeeAbsent', days: 45 }],
+  },
+  {
+    id: 'conflit_equipe', kind: 'bad', weight: 1.2, cooldown: 240,
+    title: 'Conflit dans l’équipe',
+    text: 'Deux collègues ne se parlent plus et l’ambiance se dégrade.',
+    when: (s) => s.staff.employees.length >= 3,
+    botChoice: 0,
+    choices: [
+      { label: 'Payer une médiation (900 €)', effects: [cash(-90_000, 'formation'), { t: 'motivation', v: 5 }] },
+      { label: 'Laisser faire', effects: [{ t: 'motivation', v: -12 }, mod('productivity', 0.92, 30, 'Mauvaise ambiance')] },
+    ],
+  },
+  {
+    id: 'team_building', kind: 'good', weight: 1, cooldown: 300,
+    title: 'Idée de team building',
+    text: 'L’équipe propose une journée kayak sur la Lesse.',
+    when: (s) => s.staff.employees.length >= 2,
+    botChoice: 0,
+    choices: [
+      { label: 'Offrir la journée (100 € par personne)', effects: [cash({ of: 'payroll', f: -0.03, max: -20_000 }, 'formation'), { t: 'motivation', v: 12 }] },
+      { label: 'Pas cette année', effects: [{ t: 'motivation', v: -3 }] },
+    ],
+  },
+  {
+    id: 'business_angel', kind: 'good', weight: 0.8, cooldown: 540, legal: 'srl', minDay: 360,
+    title: 'Un investisseur s’intéresse à toi',
+    text: 'Un business angel a repéré ta société et souhaite discuter d’une entrée au capital.',
+    when: (s) => s.company.reputation > 45 && !s.offers.investor,
+    effects: [{ t: 'investorOffer' }],
+  },
+  {
+    id: 'credit_promo', kind: 'good', weight: 0.8, cooldown: 540,
+    title: 'Offre de crédit avantageuse',
+    text: 'Ta banque lance une campagne de crédits aux PME à taux réduit pendant un mois.',
+    effects: [{ t: 'flagUntil', key: 'loanPromo', days: 30 }, { t: 'log', text: 'Taux de crédit −1 point pendant 30 jours (onglet Finances).' }],
+  },
+  {
+    id: 'hausse_taux', kind: 'bad', weight: 0.8, cooldown: 360,
+    title: 'La BCE relève ses taux',
+    text: 'La Banque centrale européenne relève ses taux directeurs pour combattre l’inflation.',
+    when: (s) => s.world.baseRate < 0.05,
+    effects: [{ t: 'baseRate', v: 0.005 }],
+  },
+  {
+    id: 'baisse_taux', kind: 'good', weight: 0.8, cooldown: 360,
+    title: 'La BCE baisse ses taux',
+    text: 'Pour relancer l’économie, la BCE abaisse ses taux directeurs.',
+    when: (s) => s.world.baseRate > 0.01,
+    effects: [{ t: 'baseRate', v: -0.005 }],
+  },
+  {
+    id: 'indexation', kind: 'bad', weight: 1, cooldown: 330, minDay: 300,
+    title: 'Indexation automatique des salaires',
+    text: 'L’indice-santé a dépassé l’indice-pivot : les salaires sont indexés automatiquement (spécificité belge).',
+    when: hasEmployees,
+    effects: [{ t: 'salaryIndex', pct: 0.02 }],
+  },
+  {
+    id: 'nouvelle_norme', kind: 'bad', weight: 1, cooldown: 540,
+    title: 'Nouvelle réglementation',
+    text: 'Une nouvelle norme européenne t’oblige à adapter tes process.',
+    botChoice: 0,
+    choices: [
+      { label: 'Se mettre en conformité tout de suite (800 €)', effects: [cash(-80_000, 'autres')] },
+      { label: 'Attendre et espérer ne pas être contrôlé', effects: [chance(0.6, [], [cash(-300_000, 'amendes')], 'Personne n’a rien vérifié.', 'Contrôle : amende pour non-conformité.')] },
+    ],
+  },
+  {
+    id: 'article_presse', kind: 'good', weight: 1.2, cooldown: 300,
+    title: 'Article dans la presse locale',
+    text: 'Un journaliste de la presse régionale consacre un portrait à ton entreprise.',
+    when: (s) => s.company.reputation > 35,
+    effects: [rep(5), mod('demand', 1.12, 45, 'Article de presse')],
+  },
+  {
+    id: 'salon_pro', kind: 'neutral', weight: 1, cooldown: 360,
+    title: 'Salon professionnel',
+    text: 'On te propose un stand au salon des entrepreneurs à Brussels Expo.',
+    botChoice: 0,
+    choices: [
+      { label: 'Prendre un stand (2 000 €)', effects: [cash(-200_000, 'marketing'), chance(0.65, [mod('demand', 1.25, 60, 'Contacts du salon'), rep(2)], [rep(1)], 'Le salon est un succès : beaucoup de contacts !', 'Salon décevant : peu de visiteurs.')] },
+      { label: 'Juste visiter (gratuit)', effects: [mod('demand', 1.03, 30, 'Réseautage')] },
+    ],
+  },
+  {
+    id: 'stagiaire', kind: 'good', weight: 1, cooldown: 300,
+    title: 'Demande de stage',
+    text: 'Un étudiant de haute école cherche un stage non rémunéré de quelques mois.',
+    effects: [{ t: 'candidate', skill: 30, salaryMult: 0, trait: 'ambitieux' }, { t: 'log', text: 'Un stagiaire est disponible dans l’onglet Équipe (coût : charges uniquement).' }],
+  },
+  {
+    id: 'fournisseur_faillite', kind: 'bad', weight: 1, cooldown: 540,
+    title: 'Faillite d’un fournisseur',
+    text: 'Ton fournisseur principal ferme : il faut en trouver un autre, plus cher.',
+    effects: [mod('unitCost', 1.15, 90, 'Nouveau fournisseur'), mod('materialCost', 1.15, 90, 'Nouveau fournisseur')],
+  },
+  {
+    id: 'erreur_comptable', kind: 'bad', weight: 0.8, cooldown: 720,
+    title: 'Erreur de ton comptable',
+    text: 'Ton comptable a oublié une déclaration : amende administrative.',
+    botChoice: 0,
+    choices: [
+      { label: 'Payer et changer de comptable (plus cher, plus rigoureux)', effects: [cash(-50_000, 'amendes'), { t: 'flag', key: 'comptaRigueur' }, { t: 'fixedCost', amount: 3_000 }] },
+      { label: 'Payer et lui laisser une chance', effects: [cash(-50_000, 'amendes')] },
+    ],
+  },
+  {
+    id: 'remboursement_impot', kind: 'good', weight: 0.6, cooldown: 720,
+    title: 'Bonne nouvelle du fisc',
+    text: 'Une erreur en ta faveur est corrigée : le SPF Finances te rembourse un trop-perçu.',
+    effects: [{ t: 'personal', amount: 60_000 }],
+  },
+  {
+    id: 'retard_paiement', kind: 'bad', weight: 1.2, cooldown: 200, minDay: 90,
+    title: 'Gros client en retard de paiement',
+    text: 'Ton plus gros client repousse son paiement de deux mois.',
+    effects: [{ t: 'sector', op: 'delayReceivables', days: 60, hint: 'Factures en attente retardées de 60 jours' }],
+  },
+  {
+    id: 'mauvais_payeur', kind: 'bad', weight: 1, cooldown: 300, minDay: 120,
+    title: 'Client mauvais payeur',
+    text: 'Une facture importante reste impayée malgré trois rappels.',
+    botChoice: 0,
+    choices: [
+      { label: 'Confier à un huissier (250 €)', effects: [cash(-25_000, 'evenements'), { t: 'chain', id: 'recouvrement', days: 45, hint: 'Résultat dans 45 jours.' }] },
+      { label: 'Abandonner la créance', effects: [cash(REV(-0.15, -800_000, -30_000), 'creances')] },
+    ],
+  },
+  {
+    id: 'recouvrement', kind: 'neutral', chainOnly: true,
+    title: 'Recouvrement par huissier',
+    text: 'L’huissier revient vers toi.',
+    effects: [chance(0.65, [], [cash(REV(-0.15, -800_000, -30_000), 'creances')], 'L’huissier a récupéré la somme !', 'Le client est insolvable : créance perdue.')],
+  },
+  {
+    id: 'cyberattaque', kind: 'bad', weight: 0.8, cooldown: 720, minDay: 180,
+    title: 'Cyberattaque',
+    text: 'Un rançongiciel chiffre tous tes fichiers et réclame 3 000 € en bitcoins.',
+    botChoice: 1,
+    choices: [
+      { label: 'Payer la rançon', effects: [cash(-300_000, 'evenements'), chance(0.6, [], [mod('productivity', 0.6, 10, 'Données perdues')], 'Les fichiers sont déchiffrés.', 'Les pirates ne rendent pas tout…')] },
+      { label: 'Restaurer les sauvegardes (prestataire 1 200 €)', effects: [cash(-120_000, 'evenements'), mod('productivity', 0.7, 7, 'Restauration')] },
+    ],
+  },
+  {
+    id: 'concurrent_promo', kind: 'bad', weight: 1.5, cooldown: 120, target: 'competitor',
+    title: '{competitor} casse ses prix',
+    text: '{competitor} lance une campagne de promotions massive pour te prendre des clients.',
+    effects: [{ t: 'competitorPromo', days: 30 }],
+  },
+  {
+    id: 'nouveau_concurrent', kind: 'bad', weight: 0.8, cooldown: 540, minDay: 300,
+    title: 'Un nouveau concurrent arrive',
+    text: 'Une enseigne bien financée ouvre près de chez toi.',
+    when: (s) => s.competitors.filter((c) => c.alive).length < 5,
+    effects: [{ t: 'newCompetitor' }],
+  },
+  {
+    id: 'concurrent_rachat', kind: 'good', weight: 0.6, cooldown: 720, target: 'competitor', minDay: 360,
+    title: '{competitor} jette l’éponge',
+    text: 'Le patron de {competitor} part à la retraite et propose de te céder sa clientèle.',
+    botChoice: 0,
+    choices: [
+      { label: 'Racheter la clientèle', effects: [cash(REV(-1.2, -6_000_000, -300_000), 'investissement'), { t: 'competitorBankrupt' }, rep(3), mod('demand', 1.2, 90, 'Clientèle rachetée')] },
+      { label: 'Laisser ses clients se disperser', effects: [{ t: 'competitorBankrupt' }] },
+    ],
+  },
+  {
+    id: 'epuisement', kind: 'bad', weight: 1, cooldown: 360,
+    title: 'Tu frôles le burn-out',
+    text: 'Des semaines à 60 heures… ton corps dit stop.',
+    when: (s) => s.staff.founder.active && (s.staff.lastWorkload > 1.1 || s.staff.founder.energy < 50),
+    botChoice: 0,
+    choices: [
+      { label: 'Prendre deux semaines de vacances', effects: [mod('productivity', 0.7, 14, 'Vacances du patron'), { t: 'founderEnergy', v: 40 }] },
+      { label: 'Serrer les dents', effects: [chance(0.5, [{ t: 'founderEnergy', v: -10 }], [{ t: 'founderEnergy', v: -40 }, mod('productivity', 0.5, 30, 'Burn-out')], 'Tu tiens le coup… pour l’instant.', 'Burn-out : arrêt forcé d’un mois.')] },
+    ],
+  },
+  {
+    id: 'prix_jeune_entreprise', kind: 'good', weight: 0.7, once: true, minDay: 360,
+    title: 'Prix « Jeune entreprise de l’année »',
+    text: 'Ta croissance attire l’attention : tu remportes un prix régional !',
+    when: (s) => s.company.reputation > 55,
+    effects: [rep(8), mod('demand', 1.15, 90, 'Prix régional'), cash(250_000, 'subvention'), { t: 'stat', key: 'awards' }],
+  },
+  {
+    id: 'influenceur', kind: 'neutral', weight: 1, cooldown: 300,
+    title: 'Proposition d’un influenceur',
+    text: 'Un influenceur belge (120 000 abonnés) propose de parler de toi contre rémunération.',
+    botChoice: 1,
+    choices: [
+      { label: 'Accepter (1 500 €)', effects: [cash(-150_000, 'marketing'), chance(0.55, [mod('demand', 1.4, 30, 'Buzz influenceur'), rep(3)], [rep(-2)], 'Le post cartonne !', 'Flop : son audience n’est pas ta cible, et certains crient au placement de produit.')] },
+      { label: 'Refuser poliment', effects: [] },
+    ],
+  },
+  {
+    id: 'travaux_voirie', kind: 'bad', weight: 1, cooldown: 720,
+    title: 'Travaux de voirie',
+    text: 'La commune éventre la rue devant chez toi pour trois mois.',
+    sectors: ['restaurant', 'soutien'],
+    botChoice: 0,
+    choices: [
+      { label: 'Demander l’indemnité communale (dossier)', effects: [mod('demand', 0.7, 90, 'Rue en travaux'), { t: 'chain', id: 'indemnite_travaux', days: 60, hint: 'Indemnité possible dans 2 mois.' }] },
+      { label: 'Faire de la pub « on reste ouverts » (600 €)', effects: [cash(-60_000, 'marketing'), mod('demand', 0.82, 90, 'Rue en travaux')] },
+    ],
+  },
+  {
+    id: 'indemnite_travaux', kind: 'good', chainOnly: true,
+    title: 'Indemnité pour travaux',
+    text: 'La commune répond à ta demande d’indemnisation.',
+    effects: [chance(0.6, [cash(200_000, 'subvention')], [], 'Indemnité accordée.', 'Demande refusée.')],
+  },
+  {
+    id: 'assurance_hausse', kind: 'bad', weight: 1, cooldown: 540,
+    title: 'Hausse des primes d’assurance',
+    text: 'Ton assureur augmente ses tarifs après une année de sinistres records.',
+    effects: [{ t: 'fixedCost', amount: 3_500 }],
+  },
+  {
+    id: 'loyer_indexation', kind: 'bad', weight: 1, cooldown: 360, minDay: 360,
+    title: 'Indexation du loyer',
+    text: 'Ton propriétaire applique l’indexation annuelle du bail commercial.',
+    when: (s) => s.upgrades.owned.length > 0,
+    effects: [{ t: 'fixedCost', amount: 4_000 }],
+  },
+  {
+    id: 'grippe', kind: 'bad', weight: 1.2, cooldown: 300,
+    title: 'Épidémie de grippe',
+    text: 'La grippe saisonnière décime ton équipe.',
+    when: (s) => [0, 1, 10, 11].includes(Math.floor((s.time.day % 360) / 30)),
+    effects: [mod('productivity', 0.75, 12, 'Grippe')],
+  },
+  {
+    id: 'penurie_main_oeuvre', kind: 'bad', weight: 0.8, cooldown: 540,
+    title: 'Pénurie de main-d’œuvre',
+    text: 'Ton métier est en pénurie : les candidats se font rares et exigeants.',
+    effects: [{ t: 'motivation', v: -4 }, { t: 'sector', op: 'clearCandidates', hint: 'Vivier de candidats vidé' }],
+  },
+  {
+    id: 'coupure_courant', kind: 'bad', weight: 1, cooldown: 300,
+    title: 'Coupure de courant',
+    text: 'Une panne du réseau électrique paralyse ton quartier toute une journée.',
+    effects: [mod('capacity', 0.3, 1, 'Coupure de courant'), mod('productivity', 0.3, 1, 'Coupure de courant')],
+  },
+  {
+    id: 'mentor', kind: 'good', weight: 0.8, cooldown: 720,
+    title: 'Un mentor te prend sous son aile',
+    text: 'Une cheffe d’entreprise expérimentée te propose des conseils gratuits.',
+    effects: [rep(2), { t: 'founderEnergy', v: 10 }, mod('productivity', 1.05, 90, 'Conseils du mentor')],
+  },
+  {
+    id: 'sponsoring_club', kind: 'neutral', weight: 1, cooldown: 360,
+    title: 'Le club de foot local cherche un sponsor',
+    text: 'Le RFC du quartier te propose ton logo sur les maillots des jeunes.',
+    botChoice: 1,
+    choices: [
+      { label: 'Sponsoriser (800 €)', effects: [cash(-80_000, 'marketing'), rep(3), mod('demand', 1.05, 120, 'Sponsoring local')] },
+      { label: 'Décliner', effects: [] },
+    ],
+  },
+  {
+    id: 'reviseur', kind: 'neutral', weight: 0.6, cooldown: 720, legal: 'srl',
+    title: 'Dépôt des comptes annuels',
+    text: 'Rappel : les comptes de ta SRL doivent être déposés à la Banque nationale.',
+    botChoice: 0,
+    choices: [
+      { label: 'Laisser le comptable s’en charger (300 €)', effects: [cash(-30_000, 'comptable')] },
+      { label: 'Reporter à plus tard', effects: [chance(0.5, [], [cash(-120_000, 'amendes'), rep(-1)], 'Déposé de justesse dans les délais.', 'Dépôt tardif : amende de la BNB.')] },
+    ],
+  },
+  {
+    id: 'caution_personnelle', kind: 'neutral', weight: 0.6, cooldown: 900, legal: 'srl', minDay: 200,
+    title: 'La banque exige une caution personnelle',
+    text: 'Pour maintenir ta ligne de crédit, la banque veut que tu te portes caution personnellement.',
+    when: (s) => s.loans.length > 0,
+    botChoice: 1,
+    choices: [
+      { label: 'Signer la caution', effects: [{ t: 'log', text: 'Tu t’es porté caution : ta responsabilité limitée ne protège plus ce crédit.' }, { t: 'flag', key: 'personalGuarantee' }] },
+      { label: 'Refuser : la banque réduit ton découvert', effects: [{ t: 'flagUntil', key: 'overdraftCut', days: 180 }] },
+    ],
+  },
+  {
+    id: 'lettre_caisse', kind: 'neutral', weight: 0.8, cooldown: 720, legal: 'independant', minDay: 300,
+    title: 'Lettre de ta caisse d’assurances sociales',
+    text: 'Ta caisse t’avertit : tes revenus réels semblent bien supérieurs à la base de tes cotisations provisoires.',
+    when: (s) => s.tax.results.length > 0 && (s.tax.results[s.tax.results.length - 1].operating || 0) > 3_000_000,
+    botChoice: 0,
+    choices: [
+      { label: 'Augmenter mes provisionnelles', effects: [{ t: 'sector', op: 'raiseSocialBase', hint: 'Base des provisionnelles = ton dernier bénéfice' }] },
+      { label: 'Garder le minimum (et la régularisation plus tard)', effects: [] },
+    ],
+  },
+  {
+    id: 'plci', kind: 'neutral', weight: 0.6, cooldown: 1080, legal: 'independant', minDay: 360,
+    title: 'Pension libre complémentaire (PLCI)',
+    text: 'Ton assureur te propose une PLCI : versements déductibles fiscalement pour ta pension.',
+    botChoice: 1,
+    choices: [
+      { label: 'Souscrire (1 500 €, déductible)', effects: [cash(-150_000, 'assurances'), { t: 'stat', key: 'pension', v: 150_000 }, { t: 'founderEnergy', v: 5 }] },
+      { label: 'Plus tard', effects: [] },
+    ],
+  },
+  {
+    id: 'heritage', kind: 'good', weight: 0.25, once: true, minDay: 720,
+    title: 'Petit héritage',
+    text: 'Une grand-tante d’Ostende te lègue une somme (après droits de succession).',
+    effects: [{ t: 'personal', amount: 1_200_000 }],
+  },
+  {
+    id: 'panne_banque', kind: 'bad', weight: 0.7, cooldown: 540,
+    title: 'Panne du terminal de paiement',
+    text: 'Le réseau de paiement par carte est en panne pendant tout un week-end.',
+    sectors: ['restaurant', 'ecommerce'],
+    effects: [mod('demand', 0.75, 3, 'Paiements en panne')],
+  },
+  {
+    id: 'opportunite_locaux', kind: 'good', weight: 0.6, cooldown: 900, minDay: 200,
+    title: 'Bonne affaire immobilière',
+    text: 'Un local voisin se libère : le propriétaire propose 3 mois de loyer offerts si tu t’agrandis.',
+    effects: [{ t: 'sector', op: 'upgradeDiscount', pct: 0.25, days: 45, hint: '−25 % sur la prochaine amélioration de locaux (45 j)' }],
+  },
+  {
+    id: 'don_asbl', kind: 'neutral', weight: 0.8, cooldown: 540,
+    title: 'Appel aux dons',
+    text: 'Une ASBL du quartier organise une collecte pour les familles en difficulté.',
+    botChoice: 0,
+    choices: [
+      { label: 'Donner 300 €', effects: [cash(-30_000, 'autres'), rep(2), { t: 'motivation', v: 3 }] },
+      { label: 'Ne rien donner', effects: [] },
+    ],
+  },
+  {
+    id: 'erreur_tarif', kind: 'bad', weight: 0.8, cooldown: 540,
+    title: 'Erreur de facturation',
+    text: 'Tu découvres que tu as sous-facturé plusieurs clients ces dernières semaines.',
+    effects: [cash(REV(-0.05, -300_000, -10_000), 'evenements')],
+  },
+
+  // ===========================================================================
+  //  AGENCE WEB
+  // ===========================================================================
+  {
+    id: 'web_appel_offres', kind: 'good', weight: 1.2, cooldown: 240, sectors: ['agence'], minDay: 120,
+    title: 'Appel d’offres d’une commune',
+    text: 'La commune de Namur lance un marché public pour refaire son site et ses e-services.',
+    botChoice: 0,
+    choices: [
+      { label: 'Répondre (dossier : 2 000 €, 40 % de chances)', effects: [cash(-200_000, 'marketing'), chance(0.4, [{ t: 'sector', op: 'bigProject', hours: 350, rateMult: 1.05 }, rep(4)], [], 'Marché remporté : 350 h de travail !', 'Marché attribué à un concurrent.')] },
+      { label: 'Passer ton tour', effects: [] },
+    ],
+  },
+  {
+    id: 'web_scope_creep', kind: 'bad', weight: 1.5, cooldown: 120, sectors: ['agence'],
+    title: 'Le client change tout',
+    text: 'En plein projet, un client veut « juste quelques modifications »… qui doublent le travail.',
+    when: (s) => s.sector.projects.some((p) => !p.internal),
+    botChoice: 0,
+    choices: [
+      { label: 'Facturer un avenant', effects: [chance(0.6, [{ t: 'sector', op: 'scopeCreep', pct: 0.3, paid: true }], [{ t: 'sector', op: 'scopeCreep', pct: 0.1, paid: false }, rep(-2)], 'Le client accepte l’avenant.', 'Le client refuse et te fait une mauvaise pub.')] },
+      { label: 'Absorber le travail en plus', effects: [{ t: 'sector', op: 'scopeCreep', pct: 0.3, paid: false }, rep(2)] },
+    ],
+  },
+  {
+    id: 'web_faille', kind: 'bad', weight: 1, cooldown: 360, sectors: ['agence'], minDay: 200,
+    title: 'Faille de sécurité',
+    text: 'Un site que tu as livré a été piraté. Le client est furieux.',
+    botChoice: 0,
+    choices: [
+      { label: 'Corriger gratuitement en urgence', effects: [mod('productivity', 0.8, 7, 'Correctif en urgence'), rep(-1)] },
+      { label: 'Facturer l’intervention', effects: [cash(80_000, 'projets'), rep(-6)] },
+    ],
+  },
+  {
+    id: 'web_ia', kind: 'neutral', weight: 0.7, once: true, sectors: ['agence'], minDay: 500,
+    title: 'L’IA bouscule le marché',
+    text: 'Les générateurs de sites par IA font baisser les prix du marché. Mais ils rendent aussi les développeurs plus rapides.',
+    effects: [mod('refPrice', 0.92, 3600, 'Pression de l’IA'), mod('productivity', 1.06, 3600, 'Outils IA')],
+  },
+  {
+    id: 'web_product_hunt', kind: 'good', weight: 1, cooldown: 360, sectors: ['agence'],
+    title: 'Ton SaaS sur Product Hunt',
+    text: 'Ton logiciel atteint le top du jour sur Product Hunt !',
+    when: (s) => s.sector.saas && s.sector.saas.status === 'live',
+    effects: [{ t: 'sector', op: 'saasBoost', n: 60, hint: '+60 abonnés' }, rep(3)],
+  },
+  {
+    id: 'web_hebergeur', kind: 'bad', weight: 1, cooldown: 360, sectors: ['agence'],
+    title: 'Panne de l’hébergeur',
+    text: 'Ton hébergeur subit une panne de 36 heures : tous tes sites clients sont hors ligne.',
+    when: (s) => s.sector.maint.contracts.length > 0 || s.sector.saas.status === 'live',
+    effects: [rep(-3), mod('maintChurn', 3, 30, 'Clients échaudés'), mod('saasChurn', 2, 30, 'Clients échaudés')],
+  },
+
+  // ===========================================================================
+  //  RESTAURANT / FRITERIE
+  // ===========================================================================
+  {
+    id: 'resto_afsca', kind: 'bad', weight: 1.3, cooldown: 300, sectors: ['restaurant'], minDay: 60,
+    title: 'Contrôle de l’AFSCA',
+    text: 'Deux inspecteurs de l’AFSCA se présentent sans prévenir.',
+    effects: [{ t: 'sector', op: 'afsca' }],
+  },
+  {
+    id: 'resto_frigo', kind: 'bad', weight: 1.2, cooldown: 300, sectors: ['restaurant'],
+    title: 'Panne du frigo',
+    text: 'La chambre froide a lâché pendant la nuit.',
+    botChoice: 0,
+    choices: [
+      { label: 'Tout jeter et réparer (900 €)', effects: [{ t: 'sector', op: 'stockLoss', pct: 1, hint: 'Tout le stock est perdu' }, cash(-90_000, 'materiel')] },
+      { label: 'Garder ce qui « a l’air bon »', effects: [{ t: 'sector', op: 'stockLoss', pct: 0.4, hint: '40 % du stock perdu' }, chance(0.7, [], [{ t: 'chain', id: 'resto_intoxication', days: 3 }], 'Personne n’a été malade. Ouf.', 'Des clients se plaignent de maux de ventre…')] },
+    ],
+  },
+  {
+    id: 'resto_critique', kind: 'neutral', weight: 1, cooldown: 360, sectors: ['restaurant'], minDay: 120,
+    title: 'Passage d’un critique',
+    text: 'Un critique culinaire connu a mangé chez toi incognito.',
+    effects: [
+      {
+        ...chance(0.5, [rep(8), mod('demand', 1.25, 60, 'Bonne critique')], [rep(-6), mod('demand', 0.88, 45, 'Mauvaise critique')], 'Critique élogieuse : « les meilleures frites de la région ».', 'Critique assassine dans la presse.'),
+        pFn: (s) => Math.min(0.92, Math.max(0.1, (s.company.quality - 0.6) * 1.1)), // dépend de la qualité
+      },
+    ],
+  },
+  {
+    id: 'resto_patates', kind: 'bad', weight: 1, cooldown: 540, sectors: ['restaurant'],
+    title: 'Mauvaise récolte de pommes de terre',
+    text: 'La sécheresse a ravagé les récoltes de Bintje : le prix des patates explose.',
+    effects: [mod('unitCost', 1.3, 90, 'Prix des pommes de terre')],
+  },
+  {
+    id: 'resto_diables', kind: 'good', weight: 1.2, cooldown: 180, sectors: ['restaurant'],
+    title: 'Match des Diables Rouges',
+    text: 'La Belgique joue ce soir : écran géant sur la place, foule affamée garantie !',
+    effects: [mod('demand', 1.9, 2, 'Match des Diables Rouges'), { t: 'log', text: 'Astuce : vérifie ton stock, la demande va exploser.' }],
+  },
+  {
+    id: 'resto_intoxication', kind: 'bad', weight: 0.6, cooldown: 720, sectors: ['restaurant'],
+    title: 'Suspicion d’intoxication alimentaire',
+    text: 'Plusieurs clients disent avoir été malades après un repas chez toi.',
+    when: (s) => s.sector && s.sector.hygiene < 55,
+    botChoice: 0,
+    choices: [
+      { label: 'Fermer 3 jours pour désinfecter (1 000 €)', effects: [cash(-100_000, 'materiel'), { t: 'sector', op: 'close', days: 3 }, { t: 'sector', op: 'hygiene', v: 30, hint: 'Hygiène +30' }, rep(-4)] },
+      { label: 'Nier en bloc', effects: [chance(0.4, [rep(-2)], [rep(-15), cash(-400_000, 'amendes'), { t: 'sector', op: 'close', days: 7 }], 'L’affaire se tasse.', 'L’AFSCA confirme : amende et fermeture d’une semaine.')] },
+    ],
+  },
+  {
+    id: 'resto_livraison', kind: 'neutral', weight: 1, once: true, sectors: ['restaurant'], minDay: 90,
+    title: 'Plateforme de livraison',
+    text: 'Une plateforme de livraison te propose de rejoindre son appli (commission de 30 % sur ces commandes).',
+    botChoice: 0,
+    choices: [
+      { label: 'Rejoindre la plateforme', effects: [{ t: 'flag', key: 'delivery' }, { t: 'log', text: 'Livraison activée : +demande, mais 30 % de commission sur ces ventes.' }] },
+      { label: 'Rester indépendant', effects: [] },
+    ],
+  },
+
+  // ===========================================================================
+  //  E-COMMERCE
+  // ===========================================================================
+  {
+    id: 'ecom_black_friday', kind: 'neutral', weight: 3, cooldown: 300, sectors: ['ecommerce'],
+    title: 'Préparer le Black Friday',
+    text: 'Le Black Friday approche. Tu fais quoi ?',
+    when: (s) => Math.floor((s.time.day % 360) / 30) === 10 && (s.time.day % 30) < 15,
+    botChoice: 0,
+    choices: [
+      { label: 'Grosse promo (−20 %) et budget pub doublé', effects: [mod('demand', 1.5, 10, 'Promo Black Friday'), mod('priceCut', 0.8, 10, 'Prix Black Friday'), cash(REV(-0.05, -500_000, -50_000), 'marketing')] },
+      { label: 'Pas de promo, on garde nos marges', effects: [mod('demand', 0.9, 10, 'Clients partis chez les promos')] },
+    ],
+  },
+  {
+    id: 'ecom_greve_transport', kind: 'bad', weight: 1, cooldown: 300, sectors: ['ecommerce'],
+    title: 'Grève des transporteurs',
+    text: 'Les livreurs sont en grève : les colis s’entassent au dépôt.',
+    effects: [mod('returns', 1.6, 20, 'Livraisons en retard'), rep(-3), mod('demand', 0.85, 20, 'Délais de livraison')],
+  },
+  {
+    id: 'ecom_conteneur', kind: 'bad', weight: 1, cooldown: 360, sectors: ['ecommerce'],
+    title: 'Conteneur bloqué',
+    text: 'Ton conteneur est bloqué au port d’Anvers par un contrôle douanier.',
+    effects: [{ t: 'sector', op: 'delayOrders', days: 20, hint: 'Commandes fournisseurs retardées de 20 jours' }],
+  },
+  {
+    id: 'ecom_avis', kind: 'good', weight: 1.2, cooldown: 240, sectors: ['ecommerce'],
+    title: 'Vague d’avis 5 étoiles',
+    text: 'Tes clients laissent des avis élogieux sur Trustpilot.',
+    when: (s) => s.company.satisfaction > 60,
+    effects: [rep(4), mod('demand', 1.12, 45, 'Avis clients')],
+  },
+  {
+    id: 'ecom_cpc', kind: 'bad', weight: 1, cooldown: 360, sectors: ['ecommerce'],
+    title: 'Hausse des coûts publicitaires',
+    text: 'Les enchères publicitaires flambent : chaque clic coûte plus cher.',
+    effects: [mod('cpc', 1.35, 60, 'Enchères pub')],
+  },
+  {
+    id: 'ecom_contrefacon', kind: 'bad', weight: 0.8, cooldown: 540, sectors: ['ecommerce'], minDay: 200,
+    title: 'Contrefaçon sur une marketplace',
+    text: 'Ton best-seller est copié et vendu moitié prix sur une grande marketplace.',
+    botChoice: 0,
+    choices: [
+      { label: 'Mise en demeure par avocat (1 200 €)', effects: [cash(-120_000, 'evenements'), chance(0.6, [], [mod('demand', 0.85, 90, 'Contrefaçon')], 'La copie est retirée.', 'La copie reste en ligne.')] },
+      { label: 'Ignorer', effects: [mod('demand', 0.8, 120, 'Contrefaçon')] },
+    ],
+  },
+  {
+    id: 'ecom_tiktok', kind: 'good', weight: 1, cooldown: 360, sectors: ['ecommerce'],
+    title: 'Produit viral sur TikTok',
+    text: 'Une vidéo montrant un de tes produits explose sur TikTok !',
+    effects: [mod('demand', 1.8, 14, 'Viral sur TikTok'), rep(2), { t: 'log', text: 'Vérifie ton stock : la demande va exploser !' }],
+  },
+
+  // ===========================================================================
+  //  ARTISANAT
+  // ===========================================================================
+  {
+    id: 'art_camionnette', kind: 'bad', weight: 1.2, cooldown: 300, sectors: ['artisan'],
+    title: 'Panne de la camionnette',
+    text: 'Ta camionnette refuse de démarrer : boîte de vitesses HS.',
+    botChoice: 0,
+    choices: [
+      { label: 'Réparer au garage (1 800 €)', effects: [cash(-180_000, 'materiel'), mod('capacity', 0.85, 4, 'Camionnette au garage')] },
+      { label: 'Louer une camionnette en attendant (600 €)', effects: [cash(-60_000, 'deplacements'), mod('capacity', 0.7, 14, 'Camionnette de location')] },
+    ],
+  },
+  {
+    id: 'art_accident', kind: 'bad', weight: 0.7, cooldown: 540, sectors: ['artisan'], target: 'employee',
+    title: 'Accident de chantier',
+    text: '{employee} est tombé d’une échelle sur un chantier.',
+    when: hasEmployees,
+    effects: [{ t: 'employeeAbsent', days: 30 }, { t: 'motivation', v: -5 }, cash(-50_000, 'assurances')],
+  },
+  {
+    id: 'art_primes', kind: 'good', weight: 1, cooldown: 540, sectors: ['artisan'],
+    title: 'Primes régionales à la rénovation',
+    text: 'La Région augmente ses primes à la rénovation énergétique : les particuliers se lancent.',
+    effects: [mod('demand', 1.3, 120, 'Primes rénovation')],
+  },
+  {
+    id: 'art_penurie', kind: 'bad', weight: 1, cooldown: 360, sectors: ['artisan'],
+    title: 'Pénurie de matériaux',
+    text: 'Le cuivre et les composants électroniques manquent : les prix grimpent.',
+    effects: [mod('materialCost', 1.25, 90, 'Pénurie de matériaux')],
+  },
+  {
+    id: 'art_promoteur', kind: 'good', weight: 1, cooldown: 300, sectors: ['artisan'], minDay: 150,
+    title: 'Un promoteur te propose un gros chantier',
+    text: 'Un promoteur immobilier cherche un sous-traitant pour 12 appartements neufs. Payeur réputé lent.',
+    botChoice: 0,
+    choices: [
+      { label: 'Accepter le chantier', effects: [{ t: 'sector', op: 'bigJob', days: 40, valueMult: 1, payDelay: 75, hint: 'Gros chantier de 40 jours-homme, payé à 75 jours' }] },
+      { label: 'Refuser (risque de dépendance)', effects: [] },
+    ],
+  },
+  {
+    id: 'art_malfacon', kind: 'bad', weight: 1, cooldown: 300, sectors: ['artisan'], minDay: 120,
+    title: 'Réclamation pour malfaçon',
+    text: 'Un client signale une fuite après ton intervention.',
+    botChoice: 0,
+    choices: [
+      { label: 'Repasser gratuitement', effects: [mod('capacity', 0.92, 5, 'Retour sur chantier'), rep(1)] },
+      { label: 'Contester', effects: [chance(0.4, [], [rep(-8), cash(-150_000, 'evenements')], 'Le client reconnaît une mauvaise utilisation.', 'L’expertise te donne tort : tu paies les dégâts.')] },
+    ],
+  },
+
+  // ===========================================================================
+  //  SOUTIEN SCOLAIRE
+  // ===========================================================================
+  {
+    id: 'sco_record', kind: 'good', weight: 1, cooldown: 300, sectors: ['soutien'],
+    title: 'Résultats record',
+    text: 'Tes élèves cartonnent aux examens : les parents en parlent partout.',
+    when: (s) => s.sector && s.sector.lastSuccess > 0.85,
+    effects: [rep(6), mod('enrollment', 1.3, 60, 'Résultats record')],
+  },
+  {
+    id: 'sco_reforme', kind: 'neutral', weight: 0.6, once: true, sectors: ['soutien'],
+    title: 'Réforme du calendrier scolaire',
+    text: 'La Fédération Wallonie-Bruxelles confirme son calendrier : rentrée fin août, deux semaines de congé à la Toussaint et au carnaval.',
+    effects: [mod('enrollment', 1.1, 60, 'Stages de congés plus demandés')],
+  },
+  {
+    id: 'sco_prof_star', kind: 'good', weight: 1, cooldown: 360, sectors: ['soutien'],
+    title: 'Un prof star veut te rejoindre',
+    text: 'Une professeure de maths réputée cherche un nouveau centre.',
+    effects: [{ t: 'candidate', role: 'enseignant', skill: 92, salaryMult: 1.2, trait: 'perfectionniste' }, { t: 'log', text: 'Une candidate exceptionnelle t’attend dans l’onglet Équipe (20 jours).' }],
+  },
+  {
+    id: 'sco_ecole', kind: 'good', weight: 1, cooldown: 540, sectors: ['soutien'], minDay: 150,
+    title: 'Partenariat avec une école',
+    text: 'Une école secondaire propose de t’envoyer ses élèves en difficulté, avec un tarif négocié.',
+    botChoice: 0,
+    choices: [
+      { label: 'Accepter (+élèves, prix −15 %)', effects: [{ t: 'sector', op: 'addStudents', n: 15, priceMult: 0.85, hint: '+15 élèves à −15 %' }] },
+      { label: 'Refuser', effects: [] },
+    ],
+  },
+  {
+    id: 'sco_plainte', kind: 'bad', weight: 1, cooldown: 300, sectors: ['soutien'],
+    title: 'Plainte d’un parent',
+    text: 'Un parent furieux accuse ton centre d’avoir mal préparé son enfant.',
+    botChoice: 0,
+    choices: [
+      { label: 'Rembourser le trimestre', effects: [cash(-48_000, 'evenements'), rep(-1)] },
+      { label: 'Défendre ton équipe', effects: [rep(-4), { t: 'motivation', v: 4 }] },
+    ],
+  },
+  {
+    id: 'sco_en_ligne', kind: 'bad', weight: 0.8, cooldown: 720, sectors: ['soutien'], minDay: 300,
+    title: 'Cours en ligne gratuits',
+    text: 'Une plateforme gratuite de cours en vidéo séduit beaucoup d’élèves.',
+    effects: [mod('enrollment', 0.85, 180, 'Concurrence en ligne')],
+  },
+];
 return __exports;
 })();
 
@@ -2344,7 +3403,7 @@ function monthEnd(state) {
   const avg = avgRevenue(state, 3);
   const credibility = state.meta.legal === 'srl' ? 1 : 0.8;
   f.overdraftLimit = clamp(Math.round(avg * ECONOMY.overdraftRevenueShare * credibility), ECONOMY.overdraftStart, ECONOMY.overdraftMax);
-  if (state.flags.overdraftCut) f.overdraftLimit = ECONOMY.overdraftStart;
+  if ((state.flags.overdraftCut || 0) > state.time.day) f.overdraftLimit = ECONOMY.overdraftStart;
   resetMonth(state);
 }
 
@@ -2401,6 +3460,7 @@ function loanOffer(state, months = 48) {
   if (profit < 0) rate += 0.015;
   rate += (months / 12 - 3) * 0.0015; // les longues durées coûtent un peu plus
   if (state.endgame && state.endgame.distressDays > 0) rate += 0.03;
+  if ((state.flags.loanPromo || 0) > state.time.day) rate -= 0.01; // campagne promotionnelle de la banque
   rate = clamp(rate, 0.015, 0.16);
   const history = state.finance.history.length;
   let max = history < 6 ? L.startupMax[state.meta.legal] : rev * L.revenueMultiple * (0.6 + rep / 100);
@@ -2507,6 +3567,460 @@ function yearEnd(state) {
     log(state, 'bad', 'Tes investisseurs sont mécontents : pas assez de dividendes cette année. Ambiance tendue et rumeurs dans la presse.', true);
   }
   state.stats.dividendsYear = 0;
+}
+return __exports;
+})();
+
+// ---- src/engine/events.js ----
+__m["src/engine/events.js"] = (function () {
+const __exports = {};
+__def(__exports, { "eventById": () => eventById, "init": () => init, "resolveAmount": () => resolveAmount, "chanceOf": () => chanceOf, "applyEffects": () => applyEffects, "describeEffects": () => describeEffects, "trigger": () => trigger, "daily": () => daily, "decide": () => decide });
+// Moteur d'événements aléatoires.
+//
+// Les événements sont des DONNÉES (src/data/events.js) avec des effets
+// déclaratifs : l'interface peut afficher les conséquences de chaque choix
+// avant de choisir (describeEffects), les bots peuvent décider, et tout reste
+// sérialisable.
+//
+// Anti-répétition : pondération, cooldown propre à chaque événement, délai
+// global entre deux événements, « once », chaînes programmées.
+
+const { EVENTS, EVENT_PARAMS } = __m["src/data/events.js"];
+const { DIFFICULTIES } = __m["src/data/difficulty.js"];
+const { pay, receive, personalIn, personalOut } = __m["src/engine/ledger.js"];
+const { addModifier } = __m["src/engine/modifiers.js"];
+const { makeCandidate } = __m["src/engine/systems/staff.js"];
+const { spawnCompetitor, updateAttraction } = __m["src/engine/systems/competitors.js"];
+const { makeInvestorOffer } = __m["src/engine/systems/loans.js"];
+const { sectorModule } = __m["src/engine/sectors/index.js"];
+const { avgRevenue } = __m["src/engine/systems/finance.js"];
+const { clamp } = __m["src/engine/money.js"];
+const { log } = __m["src/engine/log.js"];
+
+const BY_ID = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
+
+function eventById(id) {
+  return BY_ID[id];
+}
+
+function init(state) {
+  state.events = { pending: [], scheduled: [], cooldowns: {}, lastDay: EVENT_PARAMS.firstEventDay - EVENT_PARAMS.minGapDays, history: [], uid: 0, counts: {} };
+}
+
+function severity(state) {
+  return DIFFICULTIES[state.meta.difficulty].eventSeverity;
+}
+
+// --- Contexte (cible de l'événement) ------------------------------------------------
+
+function pickContext(state, ev, rng) {
+  const ctx = {};
+  if (ev.target === 'employee' || ev.target === 'keyEmployee') {
+    const list = [...state.staff.employees].filter((e) => e.role !== 'gerant' || ev.target === 'keyEmployee');
+    if (!list.length) return null;
+    const e = ev.target === 'keyEmployee' ? list.sort((a, b) => b.skill - a.skill)[0] : rng.pick(list);
+    ctx.employeeId = e.id;
+    ctx.employee = e.name;
+  }
+  if (ev.target === 'competitor') {
+    const list = state.competitors.filter((c) => c.alive);
+    if (!list.length) return null;
+    const c = rng.pick(list);
+    ctx.competitorId = c.id;
+    ctx.competitor = c.name;
+  }
+  return ctx;
+}
+
+function fill(text, ctx) {
+  return String(text).replace(/\{(\w+)\}/g, (_, k) => (ctx && ctx[k] != null ? ctx[k] : `{${k}}`));
+}
+
+// --- Montants ---------------------------------------------------------------------
+
+/** Résout un montant déclaratif en centimes (avant sévérité). */
+function resolveAmount(state, amt) {
+  if (typeof amt === 'number') return amt;
+  if (!amt) return 0;
+  let base = 0;
+  if (amt.of === 'revenue') base = Math.max(avgRevenue(state, 3), 300_000);
+  else if (amt.of === 'payroll') base = state.staff.employees.reduce((s, e) => s + e.salary, 0);
+  else if (amt.of === 'cash') base = Math.max(0, state.cash);
+  let v = base * (amt.f || 0);
+  if (amt.min != null) v = Math.max(v, amt.min);
+  if (amt.max != null) v = Math.min(v, amt.max);
+  return Math.round(v / 100) * 100;
+}
+
+function scaled(state, amount) {
+  // Les pertes sont amplifiées par la difficulté, les gains atténués.
+  const sev = severity(state);
+  return amount < 0 ? Math.round(amount * sev) : Math.round(amount / Math.sqrt(sev));
+}
+
+function scaledMult(state, mult) {
+  const sev = severity(state);
+  if (mult < 1) return clamp(1 - (1 - mult) * sev, 0.05, 1);
+  return 1 + (mult - 1) / Math.sqrt(sev);
+}
+
+// --- Effets -----------------------------------------------------------------------
+
+/** Probabilité effective d'un effet « chance » (peut dépendre de l'état). */
+function chanceOf(state, e, ctx) {
+  let p = typeof e.p === 'number' ? e.p : 0.5;
+  if (e.pFn) p = e.pFn(state, ctx);
+  return clamp(p, 0, 1);
+}
+
+function applyEffects(state, effects, ctx, rng, src) {
+  for (const e of effects || []) applyEffect(state, e, ctx, rng, src);
+}
+
+function applyEffect(state, e, ctx, rng, src) {
+  switch (e.t) {
+    case 'cash': {
+      const v = scaled(state, resolveAmount(state, e.amount));
+      if (v >= 0) receive(state, v, e.cat || 'autres_revenus', { taxable: e.taxable !== false });
+      else pay(state, -v, e.cat || 'evenements');
+      break;
+    }
+    case 'personal': {
+      const v = scaled(state, resolveAmount(state, e.amount));
+      if (v >= 0) personalIn(state, v, 'evenement');
+      else personalOut(state, -v, 'evenement');
+      break;
+    }
+    case 'rep':
+      state.company.reputation = clamp(state.company.reputation + (e.v < 0 ? e.v * severity(state) : e.v), 0, 100);
+      break;
+    case 'sat':
+      state.company.satisfaction = clamp(state.company.satisfaction + e.v, 0, 100);
+      break;
+    case 'mod':
+      addModifier(state, { key: e.key, mult: e.mult != null ? scaledMult(state, e.mult) : 1, add: e.add || 0, days: e.days, label: e.label || src, source: src });
+      break;
+    case 'motivation':
+      for (const emp of state.staff.employees) emp.motivation = clamp(emp.motivation + e.v, 0, 100);
+      break;
+    case 'loseEmployee': {
+      const emp = state.staff.employees.find((x) => x.id === ctx.employeeId);
+      if (emp) {
+        state.staff.employees = state.staff.employees.filter((x) => x !== emp);
+        state.stats.resignations = (state.stats.resignations || 0) + 1;
+      }
+      break;
+    }
+    case 'employeeSkill': {
+      const emp = state.staff.employees.find((x) => x.id === ctx.employeeId);
+      if (emp) emp.skill = clamp(emp.skill + e.v, 1, 100);
+      break;
+    }
+    case 'employeeRaise': {
+      const emp = state.staff.employees.find((x) => x.id === ctx.employeeId);
+      if (emp) {
+        emp.salary = Math.round((emp.salary * (1 + e.pct)) / 1000) * 1000;
+        emp.motivation = clamp(emp.motivation + 20, 0, 100);
+      }
+      break;
+    }
+    case 'employeeAbsent': {
+      const emp = state.staff.employees.find((x) => x.id === ctx.employeeId);
+      if (emp) emp.absentUntil = Math.max(emp.absentUntil || 0, state.time.day + e.days);
+      break;
+    }
+    case 'salaryIndex':
+      for (const emp of state.staff.employees) emp.salary = Math.round((emp.salary * (1 + e.pct)) / 100) * 100;
+      break;
+    case 'candidate': {
+      const c = makeCandidate(state, rng, e.role || sectorModule(state).mainRole || null, { skill: e.skill, salaryMult: e.salaryMult || 1, trait: e.trait });
+      if (e.salaryMult === 0) c.salary = 0; // stagiaire non rémunéré (convention de stage)
+      c.expires = state.time.day + 20;
+      state.staff.candidates.push(c);
+      break;
+    }
+    case 'fixedCost':
+      state.company.extraFixed = (state.company.extraFixed || 0) + scaled(state, -Math.abs(e.amount)) * -1;
+      break;
+    case 'chain':
+      state.events.scheduled.push({ id: e.id, day: state.time.day + (e.days || 30), ctx });
+      break;
+    case 'flag':
+      state.flags[e.key] = e.value === undefined ? true : e.value;
+      break;
+    case 'flagUntil':
+      state.flags[e.key] = state.time.day + e.days;
+      break;
+    case 'economyTrend':
+      state.world.economyTrend += e.v;
+      break;
+    case 'baseRate':
+      state.world.baseRate = clamp(state.world.baseRate + e.v, 0, 0.08);
+      break;
+    case 'competitorPromo': {
+      const c = state.competitors.find((x) => x.id === ctx.competitorId);
+      if (c) {
+        c.promoUntil = state.time.day + (e.days || 21);
+        updateAttraction(state);
+      }
+      break;
+    }
+    case 'competitorBankrupt': {
+      const c = state.competitors.find((x) => x.id === ctx.competitorId);
+      if (c && c.alive) {
+        c.alive = false;
+        c.deadDay = state.time.day;
+        state.stats.competitorsBankrupt = (state.stats.competitorsBankrupt || 0) + 1;
+        updateAttraction(state);
+      }
+      break;
+    }
+    case 'newCompetitor':
+      spawnCompetitor(state, rng, e.strategy);
+      break;
+    case 'investorOffer':
+      if (state.meta.legal === 'srl' && !state.offers.investor) makeInvestorOffer(state, rng);
+      break;
+    case 'founderEnergy':
+      state.staff.founder.energy = clamp(state.staff.founder.energy + e.v, 10, 100);
+      break;
+    case 'stat':
+      state.stats[e.key] = (state.stats[e.key] || 0) + (e.v ?? 1);
+      break;
+    case 'sector':
+      if (!commonOp(state, e)) {
+        const m = sectorModule(state);
+        if (m.eventOp) m.eventOp(state, e, rng, ctx);
+      }
+      break;
+    case 'chance': {
+      const p = chanceOf(state, e, ctx);
+      const ok = rng.chance(p);
+      applyEffects(state, ok ? e.success : e.fail, ctx, rng, src);
+      if (e.successText || e.failText) log(state, ok ? 'good' : 'bad', fill(ok ? e.successText : e.failText, ctx), true);
+      break;
+    }
+    case 'log':
+      log(state, e.kind || 'event', fill(e.text, ctx), !!e.toast);
+      break;
+    default:
+      break;
+  }
+}
+
+/** Opérations communes à tous les secteurs. Retourne vrai si gérée. */
+function commonOp(state, e) {
+  switch (e.op) {
+    case 'delayReceivables':
+      for (const r of state.finance.receivables) r.due += e.days;
+      return true;
+    case 'clearCandidates':
+      state.staff.candidates = [];
+      return true;
+    case 'raiseSocialBase': {
+      const last = state.tax.results[state.tax.results.length - 1];
+      if (last) state.tax.social.chosenBase = Math.max(state.tax.social.chosenBase, Math.round(last.operating * 0.8));
+      return true;
+    }
+    case 'upgradeDiscount':
+      state.flags.upgradeDiscount = { pct: e.pct, until: state.time.day + e.days, cat: 'locaux' };
+      return true;
+    default:
+      return false;
+  }
+}
+
+// --- Aperçu des conséquences ---------------------------------------------------------
+
+const MOD_LABELS = {
+  demand: 'Demande', productivity: 'Productivité', quality: 'Qualité', unitCost: 'Coût des achats', energy: 'Coût de l’énergie',
+  economy: 'Conjoncture', attraction: 'Attractivité', cpc: 'Coût par clic', defaultRisk: 'Risque d’impayés', motivation: 'Motivation',
+  materialCost: 'Coût des matériaux', refPrice: 'Prix du marché', saasChurn: 'Résiliations SaaS', maintChurn: 'Résiliations maintenance',
+  hygiene: 'Hygiène', capacity: 'Capacité', returns: 'Retours', delivery: 'Délais de livraison', enrollment: 'Inscriptions',
+};
+
+function eurTxt(c) {
+  return `${Math.round(c / 100).toLocaleString('fr-BE')} €`;
+}
+
+/** Lignes lisibles décrivant les effets d'un choix (avec probabilités). */
+function describeEffects(state, choice, ctx = {}) {
+  const out = [];
+  const walk = (effects, prefix = '') => {
+    for (const e of effects || []) {
+      switch (e.t) {
+        case 'cash': {
+          const v = scaled(state, resolveAmount(state, e.amount));
+          out.push({ text: `${prefix}${v >= 0 ? '+' : '−'}${eurTxt(Math.abs(v))} (trésorerie)`, kind: v >= 0 ? 'good' : 'bad' });
+          break;
+        }
+        case 'personal': {
+          const v = scaled(state, resolveAmount(state, e.amount));
+          out.push({ text: `${prefix}${v >= 0 ? '+' : '−'}${eurTxt(Math.abs(v))} (compte perso)`, kind: v >= 0 ? 'good' : 'bad' });
+          break;
+        }
+        case 'rep':
+          out.push({ text: `${prefix}Réputation ${e.v > 0 ? '+' : '−'}${Math.abs(Math.round(e.v < 0 ? e.v * severity(state) : e.v))}`, kind: e.v > 0 ? 'good' : 'bad' });
+          break;
+        case 'sat':
+          out.push({ text: `${prefix}Satisfaction clients ${e.v > 0 ? '+' : '−'}${Math.abs(e.v)}`, kind: e.v > 0 ? 'good' : 'bad' });
+          break;
+        case 'mod': {
+          const m = e.mult != null ? scaledMult(state, e.mult) : 1;
+          const pct = Math.round((m - 1) * 100);
+          const label = MOD_LABELS[e.key] || e.key;
+          const goodDir = ['unitCost', 'energy', 'cpc', 'defaultRisk', 'materialCost', 'saasChurn', 'maintChurn', 'returns', 'delivery'].includes(e.key) ? pct < 0 : pct > 0;
+          out.push({ text: `${prefix}${label} ${pct > 0 ? '+' : '−'}${Math.abs(pct)} % pendant ${e.days} jours`, kind: goodDir ? 'good' : 'bad' });
+          break;
+        }
+        case 'motivation':
+          out.push({ text: `${prefix}Motivation de l’équipe ${e.v > 0 ? '+' : '−'}${Math.abs(e.v)}`, kind: e.v > 0 ? 'good' : 'bad' });
+          break;
+        case 'loseEmployee':
+          out.push({ text: `${prefix}${ctx.employee || 'L’employé'} quitte l’entreprise`, kind: 'bad' });
+          break;
+        case 'employeeRaise':
+          out.push({ text: `${prefix}Salaire de ${ctx.employee || 'l’employé'} +${Math.round(e.pct * 100)} %`, kind: 'bad' });
+          break;
+        case 'employeeSkill':
+          out.push({ text: `${prefix}Compétence de ${ctx.employee || 'l’employé'} ${e.v > 0 ? '+' : ''}${e.v}`, kind: e.v > 0 ? 'good' : 'bad' });
+          break;
+        case 'employeeAbsent':
+          out.push({ text: `${prefix}${ctx.employee || 'L’employé'} absent ${e.days} jours`, kind: 'bad' });
+          break;
+        case 'salaryIndex':
+          out.push({ text: `${prefix}Tous les salaires +${(e.pct * 100).toFixed(1).replace('.', ',')} %`, kind: 'bad' });
+          break;
+        case 'candidate':
+          out.push({ text: `${prefix}Un nouveau candidat rejoint ton vivier`, kind: 'good' });
+          break;
+        case 'fixedCost':
+          out.push({ text: `${prefix}Charges fixes +${eurTxt(Math.abs(scaled(state, -Math.abs(e.amount))))}/mois`, kind: 'bad' });
+          break;
+        case 'chance': {
+          const p = Math.round(chanceOf(state, e, ctx) * 100);
+          out.push({ text: `${prefix}${p} % de chances :`, kind: 'muted' });
+          walk(e.success, '   ✔ ');
+          out.push({ text: `${prefix}${100 - p} % de risques :`, kind: 'muted' });
+          walk(e.fail, '   ✘ ');
+          break;
+        }
+        case 'chain':
+          if (e.hint) out.push({ text: `${prefix}${e.hint}`, kind: 'muted' });
+          break;
+        case 'investorOffer':
+          out.push({ text: `${prefix}Une offre d’investissement arrive (onglet Finances)`, kind: 'good' });
+          break;
+        case 'founderEnergy':
+          out.push({ text: `${prefix}Ton énergie ${e.v > 0 ? '+' : '−'}${Math.abs(e.v)}`, kind: e.v > 0 ? 'good' : 'bad' });
+          break;
+        case 'competitorBankrupt':
+          out.push({ text: `${prefix}${ctx.competitor || 'Le concurrent'} disparaît`, kind: 'good' });
+          break;
+        case 'sector':
+          if (e.hint) out.push({ text: `${prefix}${e.hint}`, kind: e.kind || 'muted' });
+          break;
+        case 'baseRate':
+          out.push({ text: `${prefix}Taux d’intérêt ${e.v > 0 ? '+' : '−'}${Math.abs(e.v * 100).toFixed(2).replace('.', ',')} pt`, kind: e.v > 0 ? 'bad' : 'good' });
+          break;
+        default:
+          if (e.hint) out.push({ text: `${prefix}${e.hint}`, kind: 'muted' });
+      }
+    }
+  };
+  walk(choice.effects);
+  return out;
+}
+
+// --- Déclenchement --------------------------------------------------------------------
+
+function eligible(state, ev) {
+  const t = state.events;
+  const day = state.time.day;
+  if (ev.chainOnly) return false;
+  if (ev.sectors && !ev.sectors.includes(state.meta.sector)) return false;
+  if (ev.legal && ev.legal !== state.meta.legal) return false;
+  if (ev.minDay && day < ev.minDay) return false;
+  if (ev.once && t.counts[ev.id]) return false;
+  if ((t.cooldowns[ev.id] || -1) > day) return false;
+  if (ev.when && !ev.when(state)) return false;
+  return true;
+}
+
+function weightOf(state, ev) {
+  const sev = severity(state);
+  let w = ev.weight || 1;
+  if (ev.kind === 'bad') w *= sev;
+  if (ev.kind === 'good') w /= sev;
+  return w;
+}
+
+/** Déclenche un événement (immédiat ou en attente de décision). */
+function trigger(state, ev, rng, ctxIn = null) {
+  const ctx = ctxIn || pickContext(state, ev, rng);
+  if (ctx === null) return false;
+  const t = state.events;
+  t.counts[ev.id] = (t.counts[ev.id] || 0) + 1;
+  t.cooldowns[ev.id] = state.time.day + (ev.cooldown ?? EVENT_PARAMS.defaultCooldown);
+  t.lastDay = state.time.day;
+  const title = fill(ev.title, ctx);
+  const text = fill(ev.text, ctx);
+  if (ev.choices && ev.choices.length) {
+    t.uid += 1;
+    t.pending.push({
+      uid: t.uid,
+      id: ev.id,
+      title,
+      text,
+      ctx,
+      day: state.time.day,
+      botChoice: ev.botChoice ?? 0,
+      choices: ev.choices.map((c) => ({ label: fill(c.label, ctx), effects: c.effects || [] })),
+    });
+  } else {
+    applyEffects(state, ev.effects, ctx, rng, title);
+    t.history.push({ id: ev.id, day: state.time.day });
+    log(state, ev.kind === 'good' ? 'good' : ev.kind === 'bad' ? 'bad' : 'event', `${title} — ${text}`, true);
+  }
+  if (t.history.length > 200) t.history.splice(0, t.history.length - 200);
+  return true;
+}
+
+function daily(state, rng) {
+  const t = state.events;
+  if (state.status === 'bankrupt') return;
+  // 1) Suites programmées (chaînes)
+  const due = t.scheduled.filter((x) => x.day <= state.time.day);
+  if (due.length) {
+    t.scheduled = t.scheduled.filter((x) => x.day > state.time.day);
+    for (const x of due) {
+      const ev = BY_ID[x.id];
+      if (ev) trigger(state, ev, rng, x.ctx || {});
+    }
+  }
+  if (t.pending.length) return;
+  // 2) Tirage aléatoire
+  const diff = DIFFICULTIES[state.meta.difficulty];
+  if (state.time.day - t.lastDay < EVENT_PARAMS.minGapDays) return;
+  if (!rng.chance(EVENT_PARAMS.dailyChance * diff.eventFrequency)) return;
+  const list = EVENTS.filter((ev) => eligible(state, ev));
+  const ev = rng.weighted(list, (x) => weightOf(state, x));
+  if (ev) trigger(state, ev, rng);
+}
+
+/** Action du joueur : choisir une option d'un événement en attente. */
+function decide(state, uid, choiceIdx, rng) {
+  const t = state.events;
+  const i = t.pending.findIndex((p) => p.uid === uid);
+  if (i < 0) return { ok: false, message: 'Décision introuvable.' };
+  const p = t.pending[i];
+  const c = p.choices[choiceIdx];
+  if (!c) return { ok: false, message: 'Choix invalide.' };
+  t.pending.splice(i, 1);
+  t.history.push({ id: p.id, day: state.time.day, choice: choiceIdx });
+  log(state, 'event', `${p.title} : « ${c.label} ».`);
+  applyEffects(state, c.effects, p.ctx, rng, p.title);
+  return { ok: true };
 }
 return __exports;
 })();
@@ -3217,6 +4731,7 @@ const { buyUpgrade } = __m["src/engine/upgrades.js"];
 const staff = __m["src/engine/systems/staff.js"];
 const { personalOut, personalIn, receive, pay } = __m["src/engine/ledger.js"];
 const loans = __m["src/engine/systems/loans.js"];
+const { decide } = __m["src/engine/events.js"];
 const { dividendRate } = __m["src/engine/taxmath.js"];
 const { dateOf } = __m["src/engine/calendar.js"];
 const { clamp } = __m["src/engine/money.js"];
@@ -3282,6 +4797,9 @@ registerActions({
     state.stats.retiredDay = state.time.day;
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
     return { ok: true };
+  },
+  decide(state, a, rng) {
+    return decide(state, a.uid, a.choice, rng);
   },
   requestLoan(state, a) {
     return loans.requestLoan(state, Number(a.amount), Number(a.months));
@@ -3349,11 +4867,13 @@ __def(__exports, { "SYSTEMS": () => SYSTEMS, "initHooks": () => initHooks });
 // Chaque système peut exposer : init(state, opts, diff, rng), daily(state, rng),
 // monthEnd(state, rng), quarterEnd(state, rng), yearEnd(state, rng), endOfDay(state, rng).
 // L'ordre du tableau est l'ordre d'exécution (important pour le déterminisme) :
-//   monde → entreprise → secteur → équipe → prêts → dirigeant → fiscalité → coût de la vie → finance → fin de partie
+//   monde → entreprise → concurrents → secteur → équipe → événements → prêts → dirigeant → fiscalité → coût de la vie → finance → fin de partie
 
 const core = __m["src/engine/systems/core.js"];
 const company = __m["src/engine/systems/company.js"];
+const competitors = __m["src/engine/systems/competitors.js"];
 const sector = __m["src/engine/systems/sector.js"];
+const events = __m["src/engine/events.js"];
 const staff = __m["src/engine/systems/staff.js"];
 const loans = __m["src/engine/systems/loans.js"];
 const owner = __m["src/engine/systems/owner.js"];
@@ -3363,7 +4883,7 @@ const finance = __m["src/engine/systems/finance.js"];
 const endgame = __m["src/engine/systems/endgame.js"];
 
 
-const SYSTEMS = [core, company, sector, staff, loans, owner, tax, living, finance, endgame];
+const SYSTEMS = [core, company, competitors, sector, staff, events, loans, owner, tax, living, finance, endgame];
 
 function initHooks() {
   return SYSTEMS.filter((s) => s.init).map((s) => s.init);
@@ -5394,6 +6914,255 @@ const panel = {
 return __exports;
 })();
 
+// ---- src/ui/charts.js ----
+__m["src/ui/charts.js"] = (function () {
+const __exports = {};
+__def(__exports, { "drawLines": () => drawLines, "drawBars": () => drawBars, "drawColumns": () => drawColumns, "legend": () => legend });
+// Graphiques légers dessinés sur canvas, sans bibliothèque.
+// Le canvas est redimensionné à sa taille affichée × devicePixelRatio pour
+// rester net ; les couleurs suivent la palette du jeu.
+
+const { eurShort, pct: fmtPct, num } = __m["src/ui/format.js"];
+
+const AXIS = '#566c86';
+const TEXT = '#94b0c2';
+const GRID = '#29366f';
+const FONT = '11px ui-monospace, Menlo, Consolas, monospace';
+
+function setup(canvas) {
+  const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+  const cssW = canvas.clientWidth || canvas.width;
+  const cssH = Math.round((cssW * canvas.height) / canvas.width) || canvas.height;
+  if (!canvas.dataset.baseH) {
+    canvas.dataset.baseW = canvas.width;
+    canvas.dataset.baseH = canvas.height;
+  }
+  const ratio = Number(canvas.dataset.baseH) / Number(canvas.dataset.baseW);
+  const h = Math.round(cssW * ratio);
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, h);
+  ctx.font = FONT;
+  return { ctx, w: cssW, h };
+}
+
+function niceStep(range) {
+  const raw = range / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9))));
+  const n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
+
+/**
+ * Courbes.
+ * @param {HTMLCanvasElement} canvas
+ * @param {{labels:string[], series:{name:string, color:string, values:number[], dashed?:boolean}[]}} data
+ * @param {{format?:'eur'|'pct'|'num', zero?:boolean}} opts
+ */
+function drawLines(canvas, data, opts = {}) {
+  const { ctx, w, h } = setup(canvas);
+  const fmt = opts.format === 'pct' ? (v) => fmtPct(v) : opts.format === 'num' ? (v) => num(v) : (v) => eurShort(v);
+  const padL = 58;
+  const padR = 10;
+  const padT = 10;
+  const padB = 22;
+  const all = data.series.flatMap((s) => s.values).filter(Number.isFinite);
+  if (!all.length) {
+    ctx.fillStyle = TEXT;
+    ctx.fillText('Pas encore de données', padL, h / 2);
+    return;
+  }
+  let min = Math.min(...all, opts.zero === false ? Infinity : 0);
+  let max = Math.max(...all, opts.zero === false ? -Infinity : 0);
+  if (min === max) max = min + 1;
+  const step = niceStep(max - min);
+  min = Math.floor(min / step) * step;
+  max = Math.ceil(max / step) * step;
+  const n = Math.max(...data.series.map((s) => s.values.length));
+  const x = (i) => padL + (n <= 1 ? 0 : (i * (w - padL - padR)) / (n - 1));
+  const y = (v) => padT + (1 - (v - min) / (max - min)) * (h - padT - padB);
+  // Grille
+  ctx.strokeStyle = GRID;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = TEXT;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let v = min; v <= max + step / 2; v += step) {
+    const yy = Math.round(y(v)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(padL, yy);
+    ctx.lineTo(w - padR, yy);
+    ctx.stroke();
+    ctx.fillText(fmt(v), padL - 4, yy);
+  }
+  if (min < 0 && max > 0) {
+    ctx.strokeStyle = AXIS;
+    ctx.beginPath();
+    ctx.moveTo(padL, Math.round(y(0)) + 0.5);
+    ctx.lineTo(w - padR, Math.round(y(0)) + 0.5);
+    ctx.stroke();
+  }
+  // Étiquettes X (quelques-unes)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const every = Math.max(1, Math.ceil(n / 6));
+  for (let i = 0; i < n; i += every) if (data.labels[i]) ctx.fillText(data.labels[i], x(i), h - padB + 6);
+  // Séries
+  for (const s of data.series) {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(s.dashed ? [4, 3] : []);
+    ctx.beginPath();
+    let started = false;
+    s.values.forEach((v, i) => {
+      if (!Number.isFinite(v)) return;
+      if (!started) ctx.moveTo(x(i), y(v));
+      else ctx.lineTo(x(i), y(v));
+      started = true;
+    });
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+/** Barres horizontales (ex. parts de marché). items = [{label, value, color}] */
+function drawBars(canvas, items, opts = {}) {
+  const { ctx, w, h } = setup(canvas);
+  const padL = 110;
+  const rowH = Math.min(24, (h - 6) / Math.max(1, items.length));
+  const max = Math.max(...items.map((i) => i.value), 1e-9);
+  ctx.textBaseline = 'middle';
+  items.forEach((it, i) => {
+    const yy = 4 + i * rowH;
+    ctx.fillStyle = TEXT;
+    ctx.textAlign = 'right';
+    ctx.fillText(it.label, padL - 6, yy + rowH / 2);
+    const bw = Math.max(1, ((w - padL - 60) * it.value) / max);
+    ctx.fillStyle = it.color;
+    ctx.fillRect(padL, yy + 3, bw, rowH - 6);
+    ctx.fillStyle = '#f4f4f4';
+    ctx.textAlign = 'left';
+    ctx.fillText(opts.pct ? fmtPct(it.value) : eurShort(it.value), padL + bw + 6, yy + rowH / 2);
+  });
+}
+
+/** Barres verticales empilées (ex. composition du revenu passif). */
+function drawColumns(canvas, data, opts = {}) {
+  const { ctx, w, h } = setup(canvas);
+  const padL = 58;
+  const padB = 22;
+  const padT = 8;
+  const n = data.labels.length;
+  if (!n) return;
+  const totals = data.labels.map((_, i) => data.series.reduce((s, se) => s + Math.max(0, se.values[i] || 0), 0));
+  const max = Math.max(...totals, opts.target || 0, 1);
+  const bw = Math.max(2, (w - padL - 10) / n - 2);
+  const y = (v) => padT + (1 - v / max) * (h - padT - padB);
+  ctx.fillStyle = TEXT;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(eurShort(max), padL - 4, padT);
+  ctx.fillText(eurShort(0), padL - 4, h - padB);
+  data.labels.forEach((lab, i) => {
+    let acc = 0;
+    const xx = padL + i * (bw + 2);
+    for (const se of data.series) {
+      const v = Math.max(0, se.values[i] || 0);
+      if (!v) continue;
+      ctx.fillStyle = se.color;
+      ctx.fillRect(xx, y(acc + v), bw, y(acc) - y(acc + v));
+      acc += v;
+    }
+  });
+  if (opts.target) {
+    ctx.strokeStyle = '#ffcd75';
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padL, y(opts.target));
+    ctx.lineTo(w - 4, y(opts.target));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const every = Math.max(1, Math.ceil(n / 6));
+  for (let i = 0; i < n; i += every) ctx.fillText(data.labels[i], padL + i * (bw + 2) + bw / 2, h - padB + 6);
+}
+
+/** Légende HTML pour un graphique. */
+function legend(series) {
+  return `<div class="chart-legend">${series.map((s) => `<span style="--c:${s.color}">${s.name}</span>`).join('')}</div>`;
+}
+return __exports;
+})();
+
+// ---- src/ui/panels/marche.js ----
+__m["src/ui/panels/marche.js"] = (function () {
+const __exports = {};
+__def(__exports, { "panel": () => panel });
+// Onglet Marché : concurrents, parts de marché, conjoncture.
+
+const { esc, help } = __m["src/ui/dom.js"];
+const { pct, num } = __m["src/ui/format.js"];
+const { STRATEGIES } = __m["src/data/competitors.js"];
+const { ECONOMY } = __m["src/data/economy.js"];
+const { playerPriceIndex } = __m["src/engine/systems/competitors.js"];
+const { drawBars } = __m["src/ui/charts.js"];
+
+const panel = {
+  id: 'marche',
+  label: 'Marché',
+  icon: '📈',
+  render(state) {
+    const comps = state.competitors;
+    const pa = state.company.attraction || 0;
+    const total = pa + comps.reduce((s, c) => s + (c.attraction || 0), 0) + ECONOMY.outsideOption;
+    const playerShare = total ? pa / total : 0;
+    const rows = comps
+      .map((c) => {
+        const st = STRATEGIES[c.strategy];
+        const promo = c.promoUntil > state.time.day;
+        return `<tr class="${c.alive ? '' : 'dim'}"><td><strong>${esc(c.name)}</strong>${c.alive ? '' : ' <span class="bad">(faillite)</span>'}${promo ? ' <span class="tag warn">promo</span>' : ''}<br><span class="small muted" title="${esc(st.desc)}">${esc(st.label)}</span></td>
+          <td class="num">${num(c.priceIdx * 100)}</td><td class="num">${num(c.quality * 100)}</td><td class="num">${num(c.reputation)}</td><td class="num">${pct(c.alive ? c.share : 0)}</td></tr>`;
+      })
+      .join('');
+    return `
+    <section class="card-block">
+      <h3>Parts de marché ${help('Part de marché')}</h3>
+      <canvas id="share-chart" class="chart" width="560" height="160" aria-label="Graphique des parts de marché"></canvas>
+      <p class="small muted">« Hors marché » = clients qui renoncent ou vont ailleurs (${pct(ECONOMY.outsideOption / total)}).</p>
+    </section>
+    <section class="card-block">
+      <h3>Concurrents</h3>
+      <table class="table"><thead><tr><th>Nom</th><th class="num" title="100 = prix du marché">Prix</th><th class="num" title="100 = qualité moyenne">Qualité</th><th class="num">Réput.</th><th class="num">Part</th></tr></thead>
+      <tbody><tr><td><strong>${esc(state.meta.companyName)}</strong> <span class="tag good">toi</span></td><td class="num">${num(playerPriceIndex(state) * 100)}</td><td class="num">${num(state.company.quality * 100)}</td><td class="num">${num(state.company.reputation)}</td><td class="num">${pct(playerShare)}</td></tr>${rows}</tbody></table>
+      <p class="small muted">Chaque concurrent suit une stratégie : bas prix, premium, marketing agressif ou suiveur. Ils réagissent à tes parts de marché et peuvent faire faillite.</p>
+    </section>
+    <section class="card-block">
+      <h3>Conjoncture</h3>
+      <p>Indice économique : <strong>${num(state.world.economy * 100)}</strong> (100 = normal) · taux directeur BCE simulé : ${(state.world.baseRate * 100).toFixed(2).replace('.', ',')} %</p>
+      ${state.modifiers.filter((m) => m.label).length ? `<h4>Effets en cours</h4><ul class="small">${state.modifiers.filter((m) => m.label).map((m) => `<li>${esc(m.label)} : ${m.mult !== 1 ? `${m.mult > 1 ? '+' : '−'}${Math.abs(Math.round((m.mult - 1) * 100))} % ` : ''}(${esc(m.key)}) jusqu'au jour ${m.until}</li>`).join('')}</ul>` : ''}
+    </section>`;
+  },
+  mount(el, state) {
+    const cv = el.querySelector('#share-chart');
+    if (!cv) return;
+    const pa = state.company.attraction || 0;
+    const comps = state.competitors.filter((c) => c.alive);
+    const total = pa + comps.reduce((s, c) => s + c.attraction, 0) + ECONOMY.outsideOption;
+    drawBars(cv, [
+      { label: 'Toi', value: pa / total, color: '#a7f070' },
+      ...comps.map((c, i) => ({ label: c.name.slice(0, 14), value: c.attraction / total, color: ['#ef7d57', '#41a6f6', '#b13e53', '#ffcd75', '#73eff7'][i % 5] })),
+      { label: 'Hors marché', value: ECONOMY.outsideOption / total, color: '#566c86' },
+    ], { pct: true });
+  },
+};
+return __exports;
+})();
+
 // ---- src/ui/panels/evenements.js ----
 __m["src/ui/panels/evenements.js"] = (function () {
 const __exports = {};
@@ -5427,9 +7196,10 @@ __def(__exports, { "PANELS": () => PANELS });
 const { panel: entreprise } = __m["src/ui/panels/entreprise.js"];
 const { panel: finances } = __m["src/ui/panels/finances.js"];
 const { panel: equipe } = __m["src/ui/panels/equipe.js"];
+const { panel: marche } = __m["src/ui/panels/marche.js"];
 const { panel: evenements } = __m["src/ui/panels/evenements.js"];
 
-const PANELS = [entreprise, finances, equipe, evenements];
+const PANELS = [entreprise, finances, equipe, marche, evenements];
 return __exports;
 })();
 
@@ -5681,18 +7451,6 @@ function startTutorial(app, force) {
     show();
   });
   show();
-}
-return __exports;
-})();
-
-// ---- src/engine/events.js ----
-__m["src/engine/events.js"] = (function () {
-const __exports = {};
-__def(__exports, { "describeEffects": () => describeEffects });
-// Moteur d'événements (complété en phase 4).
-
-function describeEffects() {
-  return [];
 }
 return __exports;
 })();

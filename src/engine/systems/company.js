@@ -84,5 +84,7 @@ export function monthlyFixedCosts(state) {
 
 export function monthEnd(state) {
   for (const f of monthlyFixedCosts(state)) spend(state, f.amount, f.vat, f.cat);
+  // Hausses de charges fixes dues aux événements (assurance, indexation du loyer…)
+  if (state.company.extraFixed > 0) spend(state, state.company.extraFixed, 0, 'autres');
   payUpgradeMonthly(state);
 }

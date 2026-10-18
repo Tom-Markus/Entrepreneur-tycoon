@@ -391,7 +391,7 @@ L'agressivité dépend de la difficulté.
 
 ---
 
-## 10. Événements (82 événements)
+## 10. Événements (92 événements)
 
 Moteur : chaque jour, probabilité `p = base × fréquenceDifficulté` qu'un
 événement survienne. On tire parmi les événements **éligibles** (secteur,

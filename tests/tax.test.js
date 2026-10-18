@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, advance, applyAction } from '../src/engine/index.js';
+import { run } from './helpers.js';
 import { ippTax, socialQuarterly, isocTax, reducedRateEligible, dividendRate, socialBaseFromProfit, socialAnnualDue } from '../src/engine/taxmath.js';
 import { FISCALITE } from '../src/data/fiscalite.js';
 import { earn } from '../src/engine/ledger.js';
@@ -53,12 +54,12 @@ test('TVA : déclarée au trimestre, payée le 20 du mois suivant', () => {
   s.sector.policy = 'manuel';
   s.sector.leads = [];
   earn(s, 1_000_000, 0.21, 'ventes');
-  advance(s, 90); // fin du T1
+  run(s, 90); // fin du T1
   const item = s.tax.schedule.find((x) => x.kind === 'tva');
   assert.ok(item, 'TVA programmée');
   assert.equal(item.dueDay, dayOf(0, 3, 20));
   const cash = s.cash;
-  advance(s, item.dueDay - s.time.day + 1);
+  run(s, item.dueDay - s.time.day + 1);
   assert.ok(!s.tax.schedule.includes(item));
   assert.ok(s.cash < cash);
   assert.equal(s.finance.vat.collected >= 0, true);
@@ -66,7 +67,7 @@ test('TVA : déclarée au trimestre, payée le 20 du mois suivant', () => {
 
 test('indépendant : IPP annuel programmé au 30 juin et régularisation sociale', () => {
   const s = newGame({ seed: 'ipp', legal: 'independant' });
-  advance(s, 360);
+  run(s, 360);
   const r = s.tax.results[0];
   assert.ok(r && r.operating > 0);
   const ipp = s.tax.schedule.find((x) => x.label.startsWith('IPP'));
@@ -78,7 +79,7 @@ test('indépendant : IPP annuel programmé au 30 juin et régularisation sociale
 
 test('SRL : ISOC au taux plein si rémunération trop basse, précompte retenu', () => {
   const s = newGame({ seed: 'isoc', legal: 'srl' });
-  advance(s, 360);
+  run(s, 360);
   const r = s.tax.results[0];
   assert.equal(r.legal, 'srl');
   assert.ok(r.directorPay > 0);
@@ -95,7 +96,7 @@ test('prêt : plafond, mensualités, remboursement', () => {
   assert.ok(applyAction(s, { type: 'requestLoan', amount: 1_000_000, months: 36 }).ok);
   assert.equal(s.cash, cash + 1_000_000);
   const l = s.loans[0];
-  advance(s, 60);
+  run(s, 60);
   assert.ok(l.remaining < 1_000_000);
   assert.equal(l.monthsLeft, 34);
 });
