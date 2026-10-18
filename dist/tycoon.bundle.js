@@ -245,6 +245,9 @@ const ECONOMY = {
   energyBase: 6_000,
   // Taux de l'épargne et des crédits (pilotés par la « BCE » du jeu).
   baseRate: 0.0225, // taux directeur simulé de départ
+  // Inflation annuelle moyenne simulée (cible BCE ≈ 2 %) et sa volatilité. [approx]
+  inflation: 0.02,
+  inflationVol: 0.006,
 };
 
 /** Libellés des catégories comptables (revenus et dépenses). */
@@ -465,10 +468,33 @@ function activeModifiers(state) {
 return __exports;
 })();
 
+// ---- src/engine/log.js ----
+__m["src/engine/log.js"] = (function () {
+const __exports = {};
+__def(__exports, { "log": () => log });
+// Journal d'événements lisible par le joueur (stocké dans l'état, borné).
+// Chaque entrée a un identifiant croissant : l'interface affiche en
+// notification les entrées `toast` qu'elle n'a pas encore vues, sans jamais
+// modifier l'état.
+
+const { CONFIG } = __m["src/data/config.js"];
+
+/**
+ * Ajoute une entrée au journal.
+ * kind : 'info' | 'good' | 'bad' | 'tax' | 'event' | 'staff' | 'market' | 'invest'
+ */
+function log(state, kind, text, toast = false) {
+  state.logSeq = (state.logSeq || 0) + 1;
+  state.log.push({ id: state.logSeq, day: state.time.day, kind, text, toast });
+  if (state.log.length > CONFIG.logSize) state.log.splice(0, state.log.length - CONFIG.logSize);
+}
+return __exports;
+})();
+
 // ---- src/engine/systems/core.js ----
 __m["src/engine/systems/core.js"] = (function () {
 const __exports = {};
-__def(__exports, { "init": () => init, "daily": () => daily, "economyIndex": () => economyIndex });
+__def(__exports, { "init": () => init, "daily": () => daily, "yearEnd": () => yearEnd, "priceLevel": () => priceLevel, "economyIndex": () => economyIndex });
 // Monde : conjoncture économique, météo, taux directeur.
 
 const { ECONOMY } = __m["src/data/economy.js"];
@@ -476,9 +502,10 @@ const { WEATHER } = __m["src/data/world.js"];
 const { dateOf } = __m["src/engine/calendar.js"];
 const { clamp } = __m["src/engine/money.js"];
 const { modMult } = __m["src/engine/modifiers.js"];
+const { log } = __m["src/engine/log.js"];
 
 function init(state, opts, diff, rng) {
-  state.world = { economy: 1, economyTrend: 0, weather: 'nuageux', baseRate: ECONOMY.baseRate };
+  state.world = { economy: 1, economyTrend: 0, weather: 'nuageux', baseRate: ECONOMY.baseRate, priceLevel: 1, inflation: [] };
   state.modifiers = [];
   pickWeather(state, rng);
 }
@@ -497,6 +524,29 @@ function daily(state, rng) {
   w.economy += (1 - w.economy) * ECONOMY.economyMeanReversion + shock + w.economyTrend;
   w.economy = clamp(w.economy, ECONOMY.economyMin, ECONOMY.economyMax);
   w.economyTrend *= 0.99;
+}
+
+/**
+ * Inflation annuelle : le niveau général des prix monte (prix de référence du
+ * marché, coûts d'achat, loyers) et les salaires sont indexés automatiquement
+ * (spécificité belge), sauf « saut d'index ».
+ */
+function yearEnd(state, rng) {
+  const w = state.world;
+  const infl = Math.max(0, ECONOMY.inflation + rng.normal(0, ECONOMY.inflationVol));
+  w.priceLevel = Math.round(w.priceLevel * (1 + infl) * 10000) / 10000;
+  w.inflation.push(Math.round(infl * 1000) / 1000);
+  if (w.inflation.length > 60) w.inflation.shift();
+  log(state, 'info', `Inflation ${(infl * 100).toFixed(1).replace('.', ',')} % : les prix du marché, les coûts et les salaires (indexation automatique) augmentent. Pense à revoir tes prix !`, true);
+  const year = Math.floor(state.time.day / 360);
+  if (state.flags.skipIndexYear === year) return;
+  for (const e of state.staff.employees) e.salary = Math.round((e.salary * (1 + infl)) / 100) * 100;
+  state.personal.livingCost = Math.round(state.personal.livingCost * (1 + infl));
+}
+
+/** Niveau général des prix (1 = 2026). */
+function priceLevel(state) {
+  return (state.world && state.world.priceLevel) || 1;
 }
 
 /** Conjoncture effective (avec modificateurs). */
@@ -789,16 +839,16 @@ const AGENCE = {
   refRate: 6_500, // taux horaire de référence du marché : 65 €/h HT
   minRate: 2_500,
   maxRate: 20_000,
-  elasticity: 1.25,
+  elasticity: 1.6,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
-  marketLeads: 1.9,
+  marketLeads: 1.1,
   seasonality: [1.1, 1.05, 1.05, 1, 1, 0.95, 0.7, 0.55, 1.15, 1.1, 1.05, 0.8],
   leadExpiryDays: 6,
   marketingRef: 50_000, // 500 €/mois = budget marketing « de référence »
 
   // Capacité
-  founderHours: 6, // heures facturables par jour ouvré
+  founderHours: 5.5, // heures facturables par jour ouvré (le reste : devis, administratif, prospection)
   homeSeats: 2, // places de travail sans bureau (fondateur + 1 à distance)
 
   // Paiement
@@ -828,30 +878,30 @@ const AGENCE = {
     defaultPrice: 2_900, // 29 €/mois HT
     minPrice: 900,
     maxPrice: 15_000,
-    baseNewPerDay: 0.25,
-    churnMonthly: 0.04,
-    serverCostPerSub: 150,
+    baseNewPerDay: 0.12,
+    churnMonthly: 0.045,
+    serverCostPerSub: 300,
     serverCostBase: 5_000,
     supportHoursPerSub: 0.08,
-    potential: 2_500,
+    potential: 700, // marché d'un SaaS de niche belge
     elasticity: 1.5,
   },
 
   roles: {
     developpeur: {
-      id: 'developpeur', label: 'Développeur·se', baseSalary: 330_000, skillRange: [30, 85],
-      hours: 6.5, desc: 'Produit des heures facturables.',
+      id: 'developpeur', label: 'Développeur·se', baseSalary: 380_000, skillRange: [30, 85],
+      hours: 5.5, desc: 'Produit des heures facturables (≈ 5,5 h/jour).',
     },
     designer: {
-      id: 'designer', label: 'Designer UX/UI', baseSalary: 300_000, skillRange: [30, 85],
-      hours: 5.5, quality: 0.05, desc: 'Produit des heures et améliore la qualité (max 3 comptent).',
+      id: 'designer', label: 'Designer UX/UI', baseSalary: 340_000, skillRange: [30, 85],
+      hours: 4.5, quality: 0.05, desc: 'Produit des heures et améliore la qualité (max 3 comptent).',
     },
     commercial: {
-      id: 'commercial', label: 'Commercial·e', baseSalary: 310_000, skillRange: [30, 85],
-      leads: 0.28, desc: 'Ramène des demandes de projets (+28 % chacun, rendements décroissants).',
+      id: 'commercial', label: 'Commercial·e', baseSalary: 360_000, skillRange: [30, 85],
+      leads: 0.18, desc: 'Rend l’agence plus visible (+18 % d’attractivité chacun, rendements décroissants).',
     },
     chef_projet: {
-      id: 'chef_projet', label: 'Chef·fe de projet', baseSalary: 390_000, skillRange: [40, 90], max: 2,
+      id: 'chef_projet', label: 'Chef·fe de projet', baseSalary: 450_000, skillRange: [40, 90], max: 2,
       overrun: 0.7, prod: 0.06, desc: 'Réduit les dépassements d’heures et organise l’équipe (+6 % de productivité).',
     },
   },
@@ -872,8 +922,8 @@ const AGENCE = {
     { id: 'plateau', cat: 'locaux', label: 'Grand plateau', cost: 2_500_000, rent: 350_000, requires: ['bureau'], effects: { seats: 18, leadsMult: 1.1, motivation: 4 },
       desc: '30 places, cuisine, terrasse. Loyer 3 500 €/mois.' },
     // Matériel
-    { id: 'laptops', cat: 'materiel', label: 'Ordinateurs performants', cost: 350_000, effects: { prodMult: 1.08 },
-      desc: '+8 % de productivité pour toute l’équipe.' },
+    { id: 'laptops', cat: 'materiel', label: 'Ordinateurs performants', cost: 350_000, effects: { prodMult: 1.04 },
+      desc: '+4 % de productivité pour toute l’équipe.' },
     { id: 'suite_creative', cat: 'materiel', label: 'Suite créative', cost: 120_000, monthly: 6_000, effects: { quality: 0.07 },
       desc: 'Qualité +7 %. Abonnement 60 €/mois.' },
     { id: 'cloud', cat: 'materiel', label: 'Infrastructure cloud', cost: 250_000, monthly: 12_000, effects: { maintChurnMult: 0.7 },
@@ -895,10 +945,10 @@ const AGENCE = {
     { id: 'grands_comptes', cat: 'marque', label: 'Références grands comptes', cost: 600_000, requires: ['seo_agence'], minRep: 50, effects: { budgetMult: 1.1, bigProjects: 1 },
       desc: 'Clients prêts à payer +10 %, plus de gros projets.' },
     // Automatisation
-    { id: 'composants', cat: 'automatisation', label: 'Bibliothèque de composants', cost: 300_000, effects: { prodMult: 1.12 },
-      desc: 'Réutiliser son code : +12 % de productivité.' },
-    { id: 'ia_dev', cat: 'automatisation', label: 'Assistants IA de développement', cost: 400_000, monthly: 10_000, requires: ['composants'], effects: { prodMult: 1.15 },
-      desc: '+15 % de productivité. Abonnement 100 €/mois.' },
+    { id: 'composants', cat: 'automatisation', label: 'Bibliothèque de composants', cost: 300_000, effects: { prodMult: 1.06 },
+      desc: 'Réutiliser son code : +6 % de productivité.' },
+    { id: 'ia_dev', cat: 'automatisation', label: 'Assistants IA de développement', cost: 400_000, monthly: 10_000, requires: ['composants'], effects: { prodMult: 1.08 },
+      desc: '+8 % de productivité. Abonnement 100 €/mois.' },
     { id: 'saas', cat: 'automatisation', label: 'Développer un SaaS', cost: 500_000, requires: ['cloud', 'agile'], effects: { unlockSaas: 1 },
       desc: 'Lance un projet interne de 600 h. Une fois en ligne, des abonnés paient chaque mois.' },
     { id: 'saas_growth', cat: 'automatisation', label: 'Moteur de croissance SaaS', cost: 800_000, requires: ['saas'], requiresFlag: 'saasLive', effects: { saasGrowthMult: 1.7 },
@@ -940,30 +990,30 @@ const RESTAURANT = {
   elasticity: 1.6,
   marketingRef: 40_000,
 
-  marketClients: 260, // clients potentiels par jour dans le quartier (tous acteurs confondus)
+  marketClients: 300, // clients potentiels par jour dans le quartier (tous acteurs confondus)
   weekday: [0, 0.8, 0.95, 0.95, 1.35, 1.45, 1.0], // fermé le lundi (jour de repos classique)
   seasonality: [0.9, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.1, 1, 0.95, 0.95, 1.05],
   weather: { soleil: 1.1, nuageux: 1, pluie: 0.85, froid: 1.05, canicule: 0.85 },
 
   ingredients: [
     { level: 1, label: 'Standard (surgelé)', cost: 260, quality: 0.88 },
-    { level: 2, label: 'Bonne (patates fraîches, sauces maison)', cost: 330, quality: 1.04 },
+    { level: 2, label: 'Bonne (patates fraîches, sauces maison)', cost: 300, quality: 1.04 },
     { level: 3, label: 'Premium (Bintje locale, bœuf belge)', cost: 430, quality: 1.2 },
   ],
   shelfLife: 4, // jours
-  founderKitchen: 45, // portions/jour que le fondateur prépare
-  founderCounter: 45, // clients/jour qu'il sert
+  founderService: 60, // clients/jour que le fondateur sert seul (cuisine + comptoir)
+  equipment: 150, // clients/jour que l'équipement de départ (2 friteuses) permet de servir
   wasteCostPerPortion: 0,
   energyBase: 45_000, // friteuses : énergie mensuelle de base
   deliveryCommission: 0.3,
 
   roles: {
-    cuisinier: { id: 'cuisinier', label: 'Cuisinier·ère', baseSalary: 260_000, skillRange: [25, 85], kitchen: 85, quality: 0.04,
-      desc: 'Prépare ≈ 85 portions/jour et améliore la qualité.' },
-    vendeur: { id: 'vendeur', label: 'Vendeur·se au comptoir', baseSalary: 235_000, skillRange: [20, 80], counter: 80,
-      desc: 'Sert ≈ 80 clients/jour : moins de files d’attente.' },
-    plongeur: { id: 'plongeur', label: 'Commis / plongeur', baseSalary: 220_000, skillRange: [15, 60], hygiene: 0.6, kitchen: 25,
-      desc: 'Nettoyage et aide en cuisine : l’hygiène remonte plus vite.' },
+    cuisinier: { id: 'cuisinier', label: 'Cuisinier·ère', baseSalary: 260_000, skillRange: [25, 85], service: 90, quality: 0.04,
+      desc: '+90 clients/jour de capacité et meilleure qualité.' },
+    vendeur: { id: 'vendeur', label: 'Vendeur·se au comptoir', baseSalary: 235_000, skillRange: [20, 80], service: 110,
+      desc: '+110 clients/jour de capacité : moins de files d’attente.' },
+    plongeur: { id: 'plongeur', label: 'Commis / plongeur', baseSalary: 220_000, skillRange: [15, 60], hygiene: 0.6, service: 30,
+      desc: 'Nettoyage et aide : l’hygiène remonte plus vite (+30 clients/jour).' },
   },
 
   fixedCosts: [
@@ -974,16 +1024,16 @@ const RESTAURANT = {
   ],
 
   upgrades: [
-    { id: 'salle', cat: 'locaux', label: 'Petite salle (12 places)', cost: 600_000, rent: 25_000, effects: { attraction: 0.06, counter: 20, staffSeats: 2 },
+    { id: 'salle', cat: 'locaux', label: 'Petite salle (12 places)', cost: 600_000, rent: 25_000, effects: { attraction: 0.06, equipment: 30, staffSeats: 2 },
       desc: 'Les clients peuvent s’asseoir : +6 % d’attractivité.' },
     { id: 'terrasse', cat: 'locaux', label: 'Terrasse', cost: 350_000, rent: 8_000, effects: { sunBonus: 0.15 },
       desc: '+15 % de clients les jours de soleil (taxe communale de terrasse incluse).' },
-    { id: 'place', cat: 'locaux', label: 'Déménager sur la place du marché', cost: 2_500_000, rent: 140_000, requires: ['salle'], effects: { marketMult: 1.5, staffSeats: 3 },
+    { id: 'place', cat: 'locaux', label: 'Déménager sur la place du marché', cost: 2_500_000, rent: 140_000, requires: ['salle'], effects: { marketMult: 1.5, staffSeats: 3, equipment: 60 },
       desc: 'Emplacement n°1 : +50 % de clients potentiels. Loyer +1 400 €/mois.' },
-    { id: 'second', cat: 'locaux', label: 'Ouvrir un 2e établissement', cost: 6_000_000, rent: 160_000, requires: ['place'], minRep: 60, effects: { marketMult: 1.75, kitchen: 60, counter: 60, staffSeats: 6 },
+    { id: 'second', cat: 'locaux', label: 'Ouvrir un 2e établissement', cost: 6_000_000, rent: 160_000, requires: ['place'], minRep: 60, effects: { marketMult: 1.75, equipment: 180, staffSeats: 6 },
       desc: 'Un autre quartier : +75 % de marché. Il faudra du personnel en plus.' },
-    { id: 'friteuse', cat: 'materiel', label: 'Friteuses professionnelles', cost: 450_000, effects: { kitchenMult: 1.35, quality: 0.04 },
-      desc: '+35 % de capacité de cuisine, frites plus croustillantes.' },
+    { id: 'friteuse', cat: 'materiel', label: 'Friteuses professionnelles', cost: 450_000, effects: { equipmentMult: 1.4, quality: 0.04 },
+      desc: '+40 % de capacité de l’équipement, frites plus croustillantes.' },
     { id: 'chambre_froide', cat: 'materiel', label: 'Chambre froide', cost: 550_000, effects: { shelfLife: 2 },
       desc: 'Les portions se conservent 2 jours de plus : moins de gaspillage.' },
     { id: 'cuisine_inox', cat: 'materiel', label: 'Cuisine inox aux normes', cost: 900_000, effects: { hygieneRegen: 0.8, quality: 0.03 },
@@ -998,8 +1048,8 @@ const RESTAURANT = {
       desc: 'On te remarque de loin : +8 % d’attractivité.' },
     { id: 'sauce_maison', cat: 'marque', label: 'Sauce maison signature', cost: 150_000, requires: ['double_cuisson'], effects: { repTarget: 6, quality: 0.04 },
       desc: 'Les clients viennent de loin pour ta sauce.' },
-    { id: 'caisse_auto', cat: 'automatisation', label: 'Bornes de commande', cost: 1_200_000, monthly: 6_000, requires: ['salle'], effects: { counterMult: 1.5 },
-      desc: '+50 % de capacité au comptoir sans personnel en plus.' },
+    { id: 'caisse_auto', cat: 'automatisation', label: 'Bornes de commande', cost: 1_200_000, monthly: 6_000, requires: ['salle'], effects: { serviceMult: 1.3, equipmentMult: 1.15 },
+      desc: '+30 % de capacité de service sans personnel en plus.' },
     { id: 'click_collect', cat: 'automatisation', label: 'Click & collect', cost: 300_000, monthly: 2_500, effects: { rainProtect: 0.6, attraction: 0.04 },
       desc: 'Commande en ligne : la pluie fait moins fuir les clients.' },
   ],
@@ -1031,12 +1081,15 @@ const ECOMMERCE = {
 
   elasticity: 2.0,
   marketingRef: 100_000, // budget pub mensuel de référence
-  organicVisitors: 650, // visiteurs organiques/jour sur le marché (partagés)
-  baseConversion: 0.024,
-  cpc: 45, // coût par clic de base : 0,45 €
+  organicVisitors: 1_100, // visiteurs organiques/jour sur le marché (partagés)
+  baseConversion: 0.03,
+  cpc: 32, // coût par clic de base : 0,32 €
+  cpcSaturation: 900, // au-delà de ≈ 900 clics/jour, les enchères coûtent de plus en plus cher
+  paidConversion: 0.7, // un visiteur payé achète moins qu'un visiteur organique
   cpcSeason: [0.9, 0.85, 0.9, 0.95, 1, 1, 0.95, 0.95, 1, 1.05, 1.45, 1.3],
   seasonality: [1.1, 0.8, 0.9, 0.95, 1, 0.95, 0.9, 0.9, 1, 1.05, 1.5, 1.6],
   blackFriday: { month: 10, from: 23, to: 28, mult: 2.4 },
+  itemsPerOrder: 1.35, // articles par commande en moyenne (panier)
   packing: 80, // emballage par commande
   paymentPct: 0.014,
   paymentFixed: 25,
@@ -1247,7 +1300,7 @@ const SOUTIEN = {
   homeSeats: 4, // enseignants (temps partiel) dans le local de départ
   staffSeatKey: 'staffSeats',
 
-  refPrice: 17_500, // abonnement mensuel de référence TTC : 175 €
+  refPrice: 19_000, // abonnement mensuel de référence TTC : 190 € (≈ 12 h de cours en groupe)
   minPrice: 5_000,
   maxPrice: 50_000,
   elasticity: 1.5,
@@ -1256,21 +1309,21 @@ const SOUTIEN = {
   // Nouvelles familles qui cherchent un soutien, par mois, sur le marché local
   marketPool: 140,
   seasonality: [1.1, 0.8, 0.9, 1, 1.4, 1.1, 0.25, 0.7, 2.2, 1.2, 1.1, 1.3],
-  churnMonthly: 0.06,
+  churnMonthly: 0.045,
   yearEndChurn: 0.6, // départ massif fin juin
   examMonths: [0, 5], // sessions de fin janvier et fin juin
   groupSize: { min: 3, max: 12, default: 6 },
   slotsPerTeacher: 5, // groupes par enseignant (le nombre d'élèves = groupes × taille)
-  founderSlots: 5,
-  baseSeats: 30, // places dans le local de départ
+  founderSlots: 7, // le fondateur enseigne à temps plein
+  baseSeats: 40, // places dans le local de départ
   materialPerStudent: 400, // fournitures/mois
   stage: { price: 18_000, month: [6, 7], pool: 70 }, // stages d'été (si amélioration)
 
   roles: {
-    etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true,
-      desc: 'Temps partiel, bon marché, résultats moyens (3 groupes).' },
-    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 5, teach: true,
-      desc: 'Mi-temps, cher mais efficace (5 groupes).' },
+    etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true, flex: true,
+      desc: 'Contrat étudiant payé à l’heure : coûte selon le remplissage (3 groupes), résultats moyens.' },
+    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 6, teach: true,
+      desc: 'Mi-temps, cher mais efficace (6 groupes).' },
     coordinateur: { id: 'coordinateur', label: 'Coordinateur·rice pédagogique', baseSalary: 320_000, skillRange: [45, 90], max: 1, success: 0.05,
       desc: 'Suivi des élèves et lien avec les parents : +5 points de réussite, moins de départs.' },
   },
@@ -1590,29 +1643,6 @@ function personalOut(state, amount, cat) {
 return __exports;
 })();
 
-// ---- src/engine/log.js ----
-__m["src/engine/log.js"] = (function () {
-const __exports = {};
-__def(__exports, { "log": () => log });
-// Journal d'événements lisible par le joueur (stocké dans l'état, borné).
-// Chaque entrée a un identifiant croissant : l'interface affiche en
-// notification les entrées `toast` qu'elle n'a pas encore vues, sans jamais
-// modifier l'état.
-
-const { CONFIG } = __m["src/data/config.js"];
-
-/**
- * Ajoute une entrée au journal.
- * kind : 'info' | 'good' | 'bad' | 'tax' | 'event' | 'staff' | 'market' | 'invest'
- */
-function log(state, kind, text, toast = false) {
-  state.logSeq = (state.logSeq || 0) + 1;
-  state.log.push({ id: state.logSeq, day: state.time.day, kind, text, toast });
-  if (state.log.length > CONFIG.logSize) state.log.splice(0, state.log.length - CONFIG.logSize);
-}
-return __exports;
-})();
-
 // ---- src/engine/upgrades.js ----
 __m["src/engine/upgrades.js"] = (function () {
 const __exports = {};
@@ -1718,6 +1748,7 @@ const { spend, receive, initLedger } = __m["src/engine/ledger.js"];
 const { initUpgrades, payUpgradeMonthly, upgradeEffect } = __m["src/engine/upgrades.js"];
 const { expireModifiers, modAdd } = __m["src/engine/modifiers.js"];
 const { clamp } = __m["src/engine/money.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 
 function init(state, opts, diff) {
   const sd = sectorData(state);
@@ -1785,11 +1816,12 @@ function changeReputation(state, delta) {
 function monthlyFixedCosts(state) {
   const sd = sectorData(state);
   const heads = state.staff.employees.length + 1;
+  const lvl = priceLevel(state);
   const list = [];
   for (const f of sd.fixedCosts) {
-    list.push({ label: f.label, amount: f.amount + (f.perHead || 0) * heads, vat: f.vat, cat: f.cat });
+    list.push({ label: f.label, amount: Math.round((f.amount + (f.perHead || 0) * heads) * lvl), vat: f.vat, cat: f.cat });
   }
-  list.push({ label: 'Comptable', amount: FISCALITE.comptable[state.meta.legal], vat: 0.21, cat: 'comptable' });
+  list.push({ label: 'Comptable', amount: Math.round(FISCALITE.comptable[state.meta.legal] * lvl), vat: 0.21, cat: 'comptable' });
   return list;
 }
 
@@ -1962,7 +1994,7 @@ return __exports;
 // ---- src/engine/systems/staff.js ----
 __m["src/engine/systems/staff.js"] = (function () {
 const __exports = {};
-__def(__exports, { "EMPLOYER_FACTOR": () => EMPLOYER_FACTOR, "TRAINING_COST": () => TRAINING_COST, "TRAINING_DAYS": () => TRAINING_DAYS, "JOB_AD_COST": () => JOB_AD_COST, "roles": () => roles, "init": () => init, "makeCandidate": () => makeCandidate, "refreshCandidates": () => refreshCandidates, "seatsAvailable": () => seatsAvailable, "marketSalary": () => marketSalary, "employerCost": () => employerCost, "hireReduction": () => hireReduction, "monthlyPayroll": () => monthlyPayroll, "productivity": () => productivity, "qualityOf": () => qualityOf, "countRole": () => countRole, "hasManager": () => hasManager, "teamBonus": () => teamBonus, "hire": () => hire, "noticeWeeksOf": () => noticeWeeksOf, "dismissalCost": () => dismissalCost, "fire": () => fire, "train": () => train, "raise": () => raise, "postJobAd": () => postJobAd, "daily": () => daily, "monthEnd": () => monthEnd });
+__def(__exports, { "EMPLOYER_FACTOR": () => EMPLOYER_FACTOR, "TRAINING_COST": () => TRAINING_COST, "TRAINING_DAYS": () => TRAINING_DAYS, "JOB_AD_COST": () => JOB_AD_COST, "roles": () => roles, "init": () => init, "makeCandidate": () => makeCandidate, "refreshCandidates": () => refreshCandidates, "seatsAvailable": () => seatsAvailable, "marketSalary": () => marketSalary, "employerCost": () => employerCost, "hireReduction": () => hireReduction, "monthlyPayroll": () => monthlyPayroll, "teamOverhead": () => teamOverhead, "productivity": () => productivity, "qualityOf": () => qualityOf, "countRole": () => countRole, "hasManager": () => hasManager, "teamBonus": () => teamBonus, "hire": () => hire, "noticeWeeksOf": () => noticeWeeksOf, "dismissalCost": () => dismissalCost, "fire": () => fire, "train": () => train, "raise": () => raise, "postJobAd": () => postJobAd, "daily": () => daily, "monthEnd": () => monthEnd });
 // Employés : candidats, recrutement, motivation, formation, démission, licenciement.
 
 const { FIRST_NAMES, LAST_NAMES, TRAITS, COMMON_ROLES } = __m["src/data/people.js"];
@@ -1974,6 +2006,7 @@ const { clamp, mul } = __m["src/engine/money.js"];
 const { modAdd } = __m["src/engine/modifiers.js"];
 const { upgradeEffect } = __m["src/engine/upgrades.js"];
 const { DAYS_PER_MONTH } = __m["src/engine/calendar.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 
 const EMP = FISCALITE.employeur;
 const EMPLOYER_FACTOR = 1 + EMP.onssRate + EMP.autresCharges;
@@ -2010,8 +2043,9 @@ function makeCandidate(state, rng, roleId, opts = {}) {
   const [lo, hi] = role.skillRange;
   const skill = clamp(Math.round(opts.skill ?? rng.range(lo, hi)), 1, 100);
   const trait = opts.trait || rng.pick(Object.keys(TRAITS));
-  const raw = role.baseSalary * (0.75 + (skill / 100) * 0.55) * rng.range(0.92, 1.1) * (opts.salaryMult || 1);
-  const salary = Math.max(EMP.rmmmg, Math.round(raw / 1000) * 1000);
+  const lvl = priceLevel(state);
+  const raw = role.baseSalary * lvl * (0.75 + (skill / 100) * 0.55) * rng.range(0.92, 1.1) * (opts.salaryMult || 1);
+  const salary = Math.max(Math.round(EMP.rmmmg * lvl), Math.round(raw / 1000) * 1000);
   state.staff.seq += 1;
   return {
     id: state.staff.seq,
@@ -2048,7 +2082,8 @@ function seatsAvailable(state) {
 /** Salaire de marché pour un rôle et une compétence (référence de motivation). */
 function marketSalary(state, roleId, skill) {
   const r = roles(state)[roleId];
-  return Math.max(EMP.rmmmg, r.baseSalary * (0.75 + (skill / 100) * 0.55));
+  const lvl = priceLevel(state);
+  return Math.max(EMP.rmmmg * lvl, r.baseSalary * lvl * (0.75 + (skill / 100) * 0.55));
 }
 
 /** Coût employeur mensuel d'un employé (avant réductions). */
@@ -2073,12 +2108,22 @@ function monthlyPayroll(state) {
   return s;
 }
 
+/**
+ * Coordination : au-delà de 4 personnes, chaque employé de plus coûte un peu
+ * d'efficacité à tous (réunions, communication). Un gérant compense en partie.
+ */
+function teamOverhead(state) {
+  const n = state.staff.employees.length;
+  const base = Math.max(0.72, 1 - 0.012 * Math.max(0, n - 4));
+  return hasManager(state) ? Math.min(1, base + 0.04) : base;
+}
+
 /** Productivité d'un employé (≈ 1 pour compétence 50, motivation 70). */
 function productivity(state, e) {
   if (state.time.day < (e.absentUntil || 0)) return 0;
   const t = TRAITS[e.trait] || TRAITS.fiable;
   const mot = 0.7 + 0.3 * (e.motivation / 100);
-  return (0.5 + e.skill / 100) * mot * t.prod;
+  return (0.5 + e.skill / 100) * mot * t.prod * teamOverhead(state);
 }
 
 function qualityOf(e) {
@@ -2224,10 +2269,16 @@ function daily(state, rng) {
 
 function monthEnd(state, rng) {
   const st = state.staff;
+  // Le fondateur apprend son métier en le pratiquant.
+  if (st.founder.active) st.founder.skill = Math.min(88, st.founder.skill + 0.25);
   // Salaires (coût employeur), réduction premiers engagements déduite.
+  // Les rôles « flex » (jobistes payés à l'heure) coûtent selon l'occupation.
+  const R = roles(state);
+  const occupancy = clamp(state.company.capacityUse || 0, 0.3, 1);
   for (const e of st.employees) {
     const onss = mul(e.salary, EMP.onssRate);
-    const cost = employerCost(e) - Math.min(onss, hireReduction(state, e));
+    let cost = employerCost(e) - Math.min(onss, hireReduction(state, e));
+    if (R[e.role] && R[e.role].flex) cost = Math.round(cost * occupancy);
     pay(state, cost, 'salaires');
   }
   // Nouveaux candidats spontanés
@@ -2251,7 +2302,7 @@ const { upgradeEffect } = __m["src/engine/upgrades.js"];
 const { modMult } = __m["src/engine/modifiers.js"];
 const { productivity, qualityOf, countRole, teamBonus } = __m["src/engine/systems/staff.js"];
 const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
-const { economyIndex } = __m["src/engine/systems/core.js"];
+const { economyIndex, priceLevel } = __m["src/engine/systems/core.js"];
 const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
@@ -2280,7 +2331,7 @@ function init(state) {
 function hoursPerDay(state) {
   const st = state.staff;
   let h = 0;
-  if (st.founder.active) h += D.founderHours * (0.6 + st.founder.skill / 140) * (st.founder.energy / 100 * 0.4 + 0.6);
+  if (st.founder.active) h += D.founderHours * (0.7 + st.founder.skill / 250) * (st.founder.energy / 100 * 0.4 + 0.6);
   for (const e of st.employees) {
     const r = D.roles[e.role];
     if (r && r.hours) h += r.hours * productivity(state, e);
@@ -2324,7 +2375,7 @@ function overrunMult(state) {
 }
 
 function refPrice(state) {
-  return Math.round(D.refRate * modMult(state, 'refPrice'));
+  return Math.round(D.refRate * modMult(state, 'refPrice') * priceLevel(state));
 }
 
 /** Attractivité du joueur (part des demandes du marché). */
@@ -2338,7 +2389,8 @@ function playerAttraction(state) {
     reputation: state.company.reputation,
     marketing: state.company.marketing,
     marketingRef: D.marketingRef,
-    extra: credibility * modMult(state, 'attraction'),
+    // Marque et commerciaux améliorent l'attractivité avec des rendements décroissants (racine carrée)
+    extra: credibility * modMult(state, 'attraction') * Math.sqrt(upgradeEffect(state, 'leadsMult') * commercialFactor(state)),
   });
 }
 
@@ -2359,7 +2411,8 @@ function leadRate(state) {
   const ev = modMult(state, 'demand');
   const brand = upgradeEffect(state, 'leadsMult');
   const sales = commercialFactor(state);
-  const lambda = D.marketLeads * diff.marketMult * season * eco * ev * share * brand * sales;
+  // marque et commerciaux sont déjà dans l'attractivité (donc dans la part de marché)
+  const lambda = D.marketLeads * diff.marketMult * season * eco * ev * share;
   return { lambda, share, att, season, eco, ev, brand, sales };
 }
 
@@ -2590,7 +2643,7 @@ function saasDaily(state, rng) {
   const mf = marketingFactor(state.company.marketing, D.marketingRef);
   const rf = reputationFactor(state.company.reputation);
   const sat = Math.max(0, 1 - s.saas.subscribers / c.potential);
-  const lambda = c.baseNewPerDay * upgradeEffect(state, 'saasGrowthMult') * mf * rf * pf * sat * economyIndex(state) * (1 + s.saas.subscribers / 400);
+  const lambda = c.baseNewPerDay * upgradeEffect(state, 'saasGrowthMult') * mf * rf * pf * sat * economyIndex(state) * (1 + s.saas.subscribers / 1500);
   const gained = rng.poisson(lambda);
   const churnBoost = state.company.quality < 0.9 ? 1.5 : 1;
   const lost = rng.poisson((s.saas.subscribers * c.churnMonthly * churnBoost * modMult(state, 'saasChurn')) / 30);
@@ -2785,6 +2838,7 @@ const { modMult } = __m["src/engine/modifiers.js"];
 const { productivity, qualityOf } = __m["src/engine/systems/staff.js"];
 const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
 const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
@@ -2816,15 +2870,15 @@ function ingredient(state) {
 }
 
 function unitCost(state) {
-  return Math.round(ingredient(state).cost * modMult(state, 'unitCost'));
+  return Math.round(ingredient(state).cost * priceLevel(state) * modMult(state, 'unitCost'));
 }
 
-function refPrice() {
-  return D.refPrice;
+function refPrice(state) {
+  return Math.round(D.refPrice * priceLevel(state));
 }
 
 function priceIndex(state) {
-  return state.sector.price / D.refPrice;
+  return state.sector.price / refPrice(state);
 }
 
 function marketMult(state) {
@@ -2832,7 +2886,7 @@ function marketMult(state) {
 }
 
 function marketValue(state) {
-  return D.marketClients * marketMult(state) * diffOf(state).marketMult * 30 * htFromTtc(state, D.refPrice, blendedVat());
+  return D.marketClients * marketMult(state) * diffOf(state).marketMult * 30 * htFromTtc(state, refPrice(state), blendedVat());
 }
 
 function stockQty(state) {
@@ -2840,7 +2894,7 @@ function stockQty(state) {
 }
 
 function stockValue(state) {
-  return stockQty(state) * ingredient(state).cost;
+  return stockQty(state) * unitCost(state);
 }
 
 function quality(state) {
@@ -2859,28 +2913,24 @@ function quality(state) {
   return clamp(q * modMult(state, 'quality'), 0.3, 2);
 }
 
-/** Capacités de cuisine et de comptoir (clients/jour). */
+/** Capacité de service (clients/jour) = min(personnel, équipement). */
 function capacities(state) {
   const f = state.staff.founder;
-  let kitchen = f.active ? D.founderKitchen * (f.energy / 100 * 0.3 + 0.7) : 0;
-  let counter = f.active ? D.founderCounter * (f.energy / 100 * 0.3 + 0.7) : 0;
+  let staff = f.active ? D.founderService * (f.energy / 100 * 0.3 + 0.7) : 0;
   for (const e of state.staff.employees) {
     const r = D.roles[e.role];
-    if (!r) continue;
-    const p = productivity(state, e);
-    if (r.kitchen) kitchen += r.kitchen * p;
-    if (r.counter) counter += r.counter * p;
+    if (r && r.service) staff += r.service * productivity(state, e);
   }
-  kitchen = (kitchen + upgradeEffect(state, 'kitchen')) * upgradeEffect(state, 'kitchenMult');
-  counter = (counter + upgradeEffect(state, 'counter')) * upgradeEffect(state, 'counterMult');
+  staff *= upgradeEffect(state, 'serviceMult');
+  const equipment = (D.equipment + upgradeEffect(state, 'equipment')) * upgradeEffect(state, 'equipmentMult');
   const m = modMult(state, 'capacity') * prodMod(state);
-  return { kitchen: kitchen * m, counter: counter * m, total: Math.min(kitchen, counter) * m };
+  return { staff: staff * m, equipment: equipment * m, total: Math.min(staff, equipment) * m };
 }
 
 /** Clients attendus (λ) pour un jour donné, avec le détail des facteurs. */
 function expectedClients(state, day = state.time.day, weatherOverride = null) {
   const d = dateOf(day);
-  const m = playerMarket(state, D, state.sector.price, D.refPrice, 1 + upgradeEffect(state, 'attraction'));
+  const m = playerMarket(state, D, state.sector.price, refPrice(state), 1 + upgradeEffect(state, 'attraction'));
   const wName = weatherOverride || state.world.weather;
   let weather = D.weather[wName] ?? 1;
   if (wName === 'soleil') weather += upgradeEffect(state, 'sunBonus');
@@ -2944,7 +2994,7 @@ function daily(state, rng) {
   }
   // Satisfaction
   if (demand > 0) {
-    const valueForMoney = D.refPrice / s.price;
+    const valueForMoney = refPrice(state) / s.price;
     let score = 50 + 70 * (state.company.quality - 0.85) + 25 * (valueForMoney - 1);
     score -= 45 * (lostQueue / demand) + 30 * (lostStock / demand);
     rateCustomer(state, clamp(score, 0, 100), 0.03);
@@ -3121,6 +3171,7 @@ const { productivity, countRole } = __m["src/engine/systems/staff.js"];
 const { rateCustomer } = __m["src/engine/systems/company.js"];
 const { priceFactor, reputationFactor } = __m["src/engine/demand.js"];
 const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
@@ -3160,7 +3211,7 @@ function priceIndex(state) {
   const s = state.sector;
   if (!s.listed.length) return 1;
   let t = 0;
-  for (const id of s.listed) t += s.prices[id] / P[id].ref;
+  for (const id of s.listed) t += s.prices[id] / (P[id].ref * priceLevel(state));
   return t / s.listed.length / (1 + upgradeEffect(state, 'priceTolerance'));
 }
 
@@ -3174,8 +3225,9 @@ function marketValue(state) {
 
 function stockValue(state) {
   let v = 0;
-  for (const p of D.products) v += (state.sector.stock[p.id] || 0) * p.cost;
-  for (const po of state.sector.pos) v += po.qty * P[po.id].cost;
+  const lvl = priceLevel(state);
+  for (const p of D.products) v += Math.round((state.sector.stock[p.id] || 0) * p.cost * lvl);
+  for (const po of state.sector.pos) v += Math.round(po.qty * P[po.id].cost * lvl);
   return v;
 }
 
@@ -3213,14 +3265,18 @@ function funnel(state) {
   const season = D.seasonality[d.month] * blackFriday(state.time.day);
   const repeat = 1 + upgradeEffect(state, 'repeat');
   const organic = D.organicVisitors * diffOf(state).marketMult * m.share * upgradeEffect(state, 'organicMult') * m.eco * repeat;
-  const paid = state.company.marketing > 0 ? state.company.marketing / 30 / cpc(state) : 0;
+  // Plus on achète de clics, plus ils coûtent cher (rendements décroissants)
+  const raw = state.company.marketing > 0 ? state.company.marketing / 30 / cpc(state) : 0;
+  const paid = raw / (1 + raw / D.cpcSaturation);
   const mpShare = upgradeEffect(state, 'marketplace') > 0 ? 0.6 : 0;
   const visitors = (organic + paid) * (1 + mpShare);
+  // visiteurs « équivalents organiques » (les visiteurs payés convertissent moins bien)
+  const effective = (organic + paid * D.paidConversion) * (1 + mpShare);
   const mk = Math.min(2, countRole(state, 'marketeur'));
   const convBoost = 1 + upgradeEffect(state, 'conv') + D.roles.marketeur.conv * mk;
   const pf = priceFactor(priceIndex(state) * modMult(state, 'priceCut'), 1, D.elasticity);
   const conversion = D.baseConversion * pf * convBoost * reputationFactor(state.company.reputation) * season * m.ev;
-  return { m, organic, paid, visitors, conversion, season, pf, convBoost, mpShare };
+  return { m, organic, paid, visitors, effective, conversion, season, pf, convBoost, mpShare };
 }
 
 function productWeights(state) {
@@ -3229,7 +3285,7 @@ function productWeights(state) {
   return s.listed.map((id) => {
     const p = P[id];
     const seas = p.season && p.season[d.month] ? p.season[d.month] : 1;
-    return { id, w: p.weight * seas * priceFactor(s.prices[id], p.ref, D.elasticity) };
+    return { id, w: p.weight * seas * priceFactor(s.prices[id], p.ref * priceLevel(state), D.elasticity) };
   });
 }
 
@@ -3244,7 +3300,7 @@ function placeOrder(state, id, qty) {
   if (!q) return 0;
   const lead = Math.round(D.leadTime * modMult(state, 'delivery'));
   state.sector.pos.push({ id, qty: q, arrive: state.time.day + lead });
-  spend(state, Math.round(q * p.cost * modMult(state, 'unitCost')), p.vat, 'stock');
+  spend(state, Math.round(q * p.cost * priceLevel(state) * modMult(state, 'unitCost')), p.vat, 'stock');
   return q;
 }
 
@@ -3278,7 +3334,7 @@ function daily(state, rng) {
     s.pos = s.pos.filter((x) => x.arrive > day);
   }
   const f = funnel(state);
-  const orders = rng.poisson(f.visitors * f.conversion);
+  const orders = rng.poisson(f.effective * f.conversion);
   const weights = productWeights(state);
   let sold = 0;
   let lostStock = 0;
@@ -3299,7 +3355,8 @@ function daily(state, rng) {
     soldBy[pick.id] = (soldBy[pick.id] || 0) + 1;
     sold++;
     const p = P[pick.id];
-    const ttc = Math.round(s.prices[pick.id] * modMult(state, 'priceCut'));
+    // Une commande contient en moyenne plusieurs articles (le stock n'en suit qu'un, simplification)
+    const ttc = Math.round(s.prices[pick.id] * modMult(state, 'priceCut') * D.itemsPerOrder);
     vatBy[p.vat] = (vatBy[p.vat] || 0) + ttc;
   }
   // Encaissement (paiement à la commande)
@@ -3335,7 +3392,7 @@ function daily(state, rng) {
   for (const [id, n] of Object.entries(soldBy)) {
     const p = P[id];
     for (let i = 0; i < n; i++) {
-      if (rng.chance(p.returns * retMult)) s.returnsQ.push({ day: day + D.returnDelay, id, ttc: s.prices[id], vat: p.vat });
+      if (rng.chance(p.returns * retMult)) s.returnsQ.push({ day: day + D.returnDelay, id, ttc: Math.round(s.prices[id] * D.itemsPerOrder), vat: p.vat });
     }
   }
   const dueReturns = s.returnsQ.filter((r) => r.day <= day);
@@ -3412,7 +3469,7 @@ const actions = {
     const p = P[a.id];
     const v = Math.round(Number(a.value));
     if (!p || !Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
-    state.sector.prices[a.id] = clamp(v, Math.round(p.cost * 0.8), p.ref * 3);
+    state.sector.prices[a.id] = clamp(v, Math.round(p.cost * 0.8), Math.round(p.ref * 3 * priceLevel(state)));
     return { ok: true };
   },
   listProduct(state, a) {
@@ -3468,6 +3525,7 @@ const { modMult } = __m["src/engine/modifiers.js"];
 const { productivity, qualityOf, countRole } = __m["src/engine/systems/staff.js"];
 const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
 const { diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
@@ -3493,16 +3551,16 @@ function init(state) {
   };
 }
 
-function refPrice() {
-  return D.refRate;
+function refPrice(state) {
+  return Math.round(D.refRate * priceLevel(state));
 }
 
 function priceIndex(state) {
-  return (state.sector.rate / D.refRate) * (0.85 + 0.15 * ((1 + state.sector.margin) / (1 + D.refMargin)));
+  return (state.sector.rate / refPrice(state)) * (0.85 + 0.15 * ((1 + state.sector.margin) / (1 + D.refMargin)));
 }
 
 function marketValue(state) {
-  return D.marketLeads * diffOf(state).marketMult * 21 * 1.6 * D.hoursPerDay * D.refRate * 0.85;
+  return D.marketLeads * diffOf(state).marketMult * 21 * 1.6 * D.hoursPerDay * refPrice(state) * 0.85;
 }
 
 function vans(state) {
@@ -3553,7 +3611,7 @@ function availableJobs(state) {
 
 function jobValue(state, t, rate = state.sector.rate, margin = state.sector.margin) {
   const labor = t.days * D.hoursPerDay * rate;
-  const mat = t.materials * modMult(state, 'materialCost') * (1 + margin);
+  const mat = t.materials * priceLevel(state) * modMult(state, 'materialCost') * (1 + margin);
   return Math.round(labor + mat + (t.urgent ? D.urgentFee : 0));
 }
 
@@ -3563,16 +3621,16 @@ function womFactor(state) {
 
 function leadRate(state) {
   const d = dateOf(state.time.day);
-  const m = playerMarket(state, D, priceIndex(state) * D.refRate, D.refRate, 1);
-  const season = metier(state).seasonality[d.month];
   const brand = upgradeEffect(state, 'leadsMult');
   const wom = womFactor(state);
-  const lambda = D.marketLeads * diffOf(state).marketMult * season * m.eco * m.ev * m.share * brand * wom;
+  const m = playerMarket(state, D, priceIndex(state), 1, brand * wom);
+  const season = metier(state).seasonality[d.month];
+  const lambda = D.marketLeads * diffOf(state).marketMult * season * m.eco * m.ev * m.share;
   return { lambda, m, season, brand, wom };
 }
 
 function acceptProb(state, t, price) {
-  const ref = jobValue(state, t, D.refRate, D.refMargin);
+  const ref = jobValue(state, t, refPrice(state), D.refMargin);
   const plan = Math.min(2, countRole(state, 'planificateur')) * D.roles.planificateur.accept;
   let p = D.baseAccept * Math.pow(ref / price, 1.3) * (0.7 + state.company.reputation / 170) * (1 + plan + upgradeEffect(state, 'accept'));
   if (t.urgent) p = Math.min(0.95, p * 1.3);
@@ -3600,9 +3658,16 @@ function newQuote(state, rng) {
 
 function startJob(state, q) {
   const t = metier(state).jobs.find((j) => j.id === q.type);
+  // Acompte de 30 % à la commande pour les gros chantiers (pratique courante)
+  let deposit = 0;
+  if (!t.payNow && t.materials >= 50_000) {
+    deposit = Math.round(q.price * 0.3);
+    earn(state, deposit, q.vat, 'chantiers');
+  }
   state.sector.jobs.push({
+    deposit,
     id: q.id, type: q.type, label: q.label, price: q.price, vat: q.vat, daysTotal: t.days, daysDone: 0,
-    materials: Math.round(t.materials * modMult(state, 'materialCost') * (1 - upgradeEffect(state, 'materialCut'))),
+    materials: Math.round(t.materials * priceLevel(state) * modMult(state, 'materialCost') * (1 - upgradeEffect(state, 'materialCut'))),
     matPaid: false, payNow: !!t.payNow, urgent: !!t.urgent, payDelay: q.payDelay || D.paymentDays,
   });
   if (t.urgent) state.sector.jobs.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0));
@@ -3611,8 +3676,9 @@ function startJob(state, q) {
 function finishJob(state, j, rng) {
   const s = state.sector;
   s.jobs = s.jobs.filter((x) => x !== j);
-  if (j.payNow) earn(state, j.price, j.vat, 'chantiers');
-  else invoice(state, j.price, j.vat, 'chantiers', { dueIn: j.payDelay, defaultProb: D.defaultProb * modMult(state, 'defaultRisk'), lateProb: D.lateProb, label: j.label, rng });
+  const due = j.price - (j.deposit || 0);
+  if (j.payNow) earn(state, due, j.vat, 'chantiers');
+  else invoice(state, due, j.vat, 'chantiers', { dueIn: j.payDelay, defaultProb: D.defaultProb * modMult(state, 'defaultRisk'), lateProb: D.lateProb, label: j.label, rng });
   const q = state.company.quality * rng.range(0.9, 1.1);
   const score = clamp(50 + 80 * (q - 0.85), 0, 100);
   rateCustomer(state, score, 0.08);
@@ -3622,7 +3688,7 @@ function finishJob(state, j, rng) {
     changeReputation(state, -1.5);
     s.wom = Math.max(0, s.wom - 3);
     log(state, 'bad', `Malfaçon signalée sur « ${j.label} » : il faudra repasser.`);
-    s.jobs.push({ ...j, id: ++s.seq, label: `Reprise : ${j.label}`, price: 0, daysTotal: j.daysTotal * 0.25, daysDone: 0, materials: 0, matPaid: true, payNow: true });
+    s.jobs.push({ ...j, id: ++s.seq, label: `Reprise : ${j.label}`, price: 0, deposit: 0, daysTotal: j.daysTotal * 0.25, daysDone: 0, materials: 0, matPaid: true, payNow: true });
   }
   if (j.type === 'entretien' && upgradeEffect(state, 'contracts') > 0 && rng.chance(D.maintenanceContract.signProb)) s.contracts++;
   s.stats.jobsDone++;
@@ -3763,6 +3829,7 @@ const { modMult } = __m["src/engine/modifiers.js"];
 const { productivity, countRole } = __m["src/engine/systems/staff.js"];
 const { rateCustomer, changeReputation } = __m["src/engine/systems/company.js"];
 const { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } = __m["src/engine/sectors/common.js"];
+const { priceLevel } = __m["src/engine/systems/core.js"];
 const { log } = __m["src/engine/log.js"];
 const { clamp } = __m["src/engine/money.js"];
 
@@ -3785,12 +3852,12 @@ function init(state) {
   };
 }
 
-function refPrice() {
-  return D.refPrice;
+function refPrice(state) {
+  return Math.round(D.refPrice * priceLevel(state));
 }
 
 function priceIndex(state) {
-  return state.sector.price / D.refPrice;
+  return state.sector.price / refPrice(state);
 }
 
 function marketMult(state) {
@@ -3798,7 +3865,7 @@ function marketMult(state) {
 }
 
 function marketValue(state) {
-  return D.marketPool * 4 * marketMult(state) * diffOf(state).marketMult * htFromTtc(state, D.refPrice, D.vatRate);
+  return D.marketPool * 4 * marketMult(state) * diffOf(state).marketMult * htFromTtc(state, refPrice(state), D.vatRate);
 }
 
 /** Compétence moyenne des enseignants (fondateur inclus), pondérée par leurs groupes. */
@@ -3854,7 +3921,7 @@ function examBoost(state, month) {
 function enrollmentRate(state) {
   const d = dateOf(state.time.day);
   const extra = 1 + upgradeEffect(state, 'attraction') + (upgradeEffect(state, 'resultsVisible') && state.sector.lastSuccess > 0.8 ? 0.1 : 0);
-  const m = playerMarket(state, D, state.sector.price, D.refPrice, extra);
+  const m = playerMarket(state, D, state.sector.price, refPrice(state), extra);
   const season = D.seasonality[d.month] * examBoost(state, d.month);
   const perDay = (D.marketPool * marketMult(state) * diffOf(state).marketMult * season * m.eco * m.ev * m.share * modMult(state, 'enrollment')) / DAYS_PER_MONTH;
   return { perDay, m, season, location: marketMult(state) };
@@ -3874,7 +3941,7 @@ function daily(state, rng) {
   s.stats.maxStudents = Math.max(s.stats.maxStudents, s.students);
   s.today = { joined, capacity: cap.total, arrivals };
   // Satisfaction des familles : rapport qualité/prix et taille des groupes
-  const score = 48 + 60 * (expectedSuccess(state) - 0.65) + 25 * (D.refPrice / s.price - 1) + 2 * (D.groupSize.default - s.groupSize);
+  const score = 48 + 60 * (expectedSuccess(state) - 0.65) + 25 * (refPrice(state) / s.price - 1) + 2 * (D.groupSize.default - s.groupSize);
   rateCustomer(state, clamp(score, 0, 100), 0.01);
   if (arrivals > joined) rateCustomer(state, 35, 0.01);
   // Fournitures
@@ -3899,10 +3966,10 @@ function monthEnd(state, rng) {
   if (ttc > 0) earn(state, htFromTtc(state, ttc, D.vatRate), D.vatRate, 'abonnements');
   // Stages d'été
   if (upgradeEffect(state, 'stages') > 0 && D.stage.month.includes(d.month)) {
-    const m = playerMarket(state, D, s.price, D.refPrice, 1);
+    const m = playerMarket(state, D, s.price, refPrice(state), 1);
     const n = Math.min(capacity(state).total, rng.poisson(D.stage.pool * m.share * marketMult(state) * diffOf(state).marketMult * 2));
     if (n > 0) {
-      earn(state, htFromTtc(state, n * D.stage.price, D.vatRate), D.vatRate, 'stages');
+      earn(state, htFromTtc(state, n * Math.round(D.stage.price * priceLevel(state)), D.vatRate), D.vatRate, 'stages');
       s.stageStudents += n;
       log(state, 'good', `Stages d'été : ${n} participants.`);
     }
@@ -4120,10 +4187,12 @@ function monthEnd(state, rng) {
       c.priceIdx += (pIdx * 0.97 - c.priceIdx) * 0.3;
       c.quality += ((state.company.quality || 1) * 0.97 - c.quality) * 0.15;
     }
-    // Réactions générales à un joueur dominant
-    if (pShare > 0.4 && rng.chance(0.12 * a)) {
-      c.mkt *= 1.15;
-      c.quality = Math.min(1.5, c.quality + 0.03);
+    // Réactions à un joueur dominant : les concurrents investissent pour reprendre des clients
+    if (pShare > 0.3) {
+      const pressure = (pShare - 0.3) * a;
+      c.mkt = Math.min(6, c.mkt * (1 + 0.25 * pressure));
+      c.quality = Math.min(1.5, c.quality + 0.04 * pressure);
+      c.reputation = Math.min(95, c.reputation + 4 * pressure);
     }
     // Promotions
     if (c.promoUntil < state.time.day && rng.chance(st.promoChance * a)) {
@@ -4146,8 +4215,9 @@ function monthEnd(state, rng) {
       if (state.compRespawnDay == null) state.compRespawnDay = state.time.day + rng.int(P.respawnDays[0], P.respawnDays[1]);
     }
   }
-  // Nouvel entrant
+  // Nouvel entrant : un marché dominé et rentable attire de nouveaux acteurs
   const alive = state.competitors.filter((c) => c.alive).length;
+  if (pShare > 0.45 && alive < 5 && rng.chance(0.06 * a)) spawnCompetitor(state, rng);
   const min = DIFFICULTIES[state.meta.difficulty].competitorCount[0];
   if (state.compRespawnDay != null && state.time.day >= state.compRespawnDay && alive < min + 1) {
     spawnCompetitor(state, rng);
@@ -4436,11 +4506,11 @@ const EVENTS = [
     effects: [{ t: 'baseRate', v: -0.005 }],
   },
   {
-    id: 'indexation', kind: 'bad', weight: 1, cooldown: 330, minDay: 300,
-    title: 'Indexation automatique des salaires',
-    text: 'L’indice-santé a dépassé l’indice-pivot : les salaires sont indexés automatiquement (spécificité belge).',
+    id: 'saut_index', kind: 'good', weight: 0.5, cooldown: 1800, minDay: 300,
+    title: 'Saut d’index',
+    text: 'Le gouvernement décide un « saut d’index » : cette année, les salaires ne seront pas indexés (comme en 2015). Bon pour tes marges, moins pour le moral.',
     when: hasEmployees,
-    effects: [{ t: 'salaryIndex', pct: 0.02 }],
+    effects: [{ t: 'flagYear', key: 'skipIndexYear' }, { t: 'motivation', v: -5 }],
   },
   {
     id: 'nouvelle_norme', kind: 'bad', weight: 1, cooldown: 540,
@@ -5447,6 +5517,9 @@ function applyEffect(state, e, ctx, rng, src) {
       break;
     case 'flag':
       state.flags[e.key] = e.value === undefined ? true : e.value;
+      break;
+    case 'flagYear':
+      state.flags[e.key] = Math.floor(state.time.day / 360);
       break;
     case 'flagUntil':
       state.flags[e.key] = state.time.day + e.days;
@@ -6474,7 +6547,7 @@ return __exports;
 // ---- src/engine/selectors.js ----
 __m["src/engine/selectors.js"] = (function () {
 const __exports = {};
-__def(__exports, { "debtTotal": () => debtTotal, "investmentsValue": () => investmentsValue, "taxLiabilities": () => taxLiabilities, "netWorth": () => netWorth, "kpis": () => kpis, "lastMonths": () => lastMonths, "passiveIncome": () => passiveIncome });
+__def(__exports, { "debtTotal": () => debtTotal, "investmentsValue": () => investmentsValue, "taxLiabilities": () => taxLiabilities, "netWorth": () => netWorth, "kpis": () => kpis, "lastMonths": () => lastMonths, "passiveTargetNow": () => passiveTargetNow, "passiveIncome": () => passiveIncome });
 // Valeurs dérivées de l'état, utilisées par l'interface, le score et les bots.
 
 const { bookValue, receivablesTotal } = __m["src/engine/ledger.js"];
@@ -6527,13 +6600,18 @@ function lastMonths(state, n = 12) {
   return state.finance.history.slice(-n);
 }
 
+/** Objectif de revenu passif en euros courants (indexé sur l'inflation depuis 2026). */
+function passiveTargetNow(state) {
+  return Math.round((state.passiveTarget || 0) * ((state.world && state.world.priceLevel) || 1));
+}
+
 /**
  * Revenu passif mensuel net (voir docs/DESIGN.md § 11.2). Le détail est
  * calculé chaque fin de mois par passive.js ; on lit le dernier résultat.
  */
 function passiveIncome(state) {
   const p = state.passive || { total: 0, avg3: 0, parts: {} };
-  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: state.passiveTarget || 0 };
+  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: passiveTargetNow(state) };
 }
 return __exports;
 })();
@@ -6541,16 +6619,19 @@ return __exports;
 // ---- src/engine/systems/passive.js ----
 __m["src/engine/systems/passive.js"] = (function () {
 const __exports = {};
-__def(__exports, { "init": () => init, "businessPassive": () => businessPassive, "computePassive": () => computePassive, "monthEnd": () => monthEnd });
+__def(__exports, { "BUSINESS_PAYOUT": () => BUSINESS_PAYOUT, "init": () => init, "businessPassive": () => businessPassive, "computePassive": () => computePassive, "monthEnd": () => monthEnd });
 // Revenu passif mensuel net, patrimoine, victoire (voir docs/DESIGN.md § 11.2).
 
 const { INVESTMENTS: I } = __m["src/data/investments.js"];
 const { FISCALITE: F } = __m["src/data/fiscalite.js"];
 const { hasManager } = __m["src/engine/systems/staff.js"];
 const { savingsRate } = __m["src/engine/systems/investments.js"];
-const { netWorth } = __m["src/engine/selectors.js"];
+const { netWorth, passiveTargetNow } = __m["src/engine/selectors.js"];
 const { ippTax, socialAnnualDue, socialBaseFromProfit, isocTax, reducedRateEligible, directorIpp } = __m["src/engine/taxmath.js"];
 const { log } = __m["src/engine/log.js"];
+
+/** Part du bénéfice distribuable (le reste est réinvesti). */
+const BUSINESS_PAYOUT = 0.7;
 
 function init(state) {
   state.passive = { total: 0, avg3: 0, parts: {}, history: [] };
@@ -6559,9 +6640,12 @@ function init(state) {
 /** Bénéfice net mensuel que l'entreprise verse au fondateur, après impôts (estimation). */
 function businessPassive(state) {
   if (state.staff.founder.active || !hasManager(state)) return 0;
-  const h = state.finance.history.slice(-6);
-  if (!h.length) return 0;
-  const profit = h.reduce((s, x) => s + x.profit, 0) / h.length;
+  // Seuls les mois écoulés depuis ton retrait comptent (l'entreprise doit prouver qu'elle tourne sans toi),
+  // sur 12 mois maximum ; 30 % du bénéfice restent dans l'entreprise (réinvestissement, réserve).
+  const since = Math.floor((state.time.day - (state.stats.retiredDay ?? state.time.day)) / 30);
+  if (since < 2) return 0;
+  const h = state.finance.history.slice(-Math.min(12, since));
+  const profit = (h.reduce((s, x) => s + x.profit, 0) / h.length) * BUSINESS_PAYOUT;
   if (state.meta.legal === 'srl') {
     const pay = state.personal.draw;
     const annualProfit = Math.max(0, profit * 12);
@@ -6611,7 +6695,7 @@ function monthEnd(state) {
     snap.netWorth = netWorth(state);
   }
   // Victoire : moyenne sur 3 mois ≥ objectif
-  if (state.status === 'playing' && last3.length === 3 && p.avg3 >= state.passiveTarget) {
+  if (state.status === 'playing' && last3.length === 3 && p.avg3 >= passiveTargetNow(state)) {
     state.status = 'won';
     state.endgame.wonDay = state.time.day;
     log(state, 'good', 'LIBERTÉ FINANCIÈRE ! Tes revenus passifs couvrent ton objectif.', true);
@@ -7065,6 +7149,7 @@ registerActions({
     if (!staff.hasManager(state)) return { ok: false, message: 'Il faut d’abord recruter un·e gérant·e compétent·e.' };
     state.staff.founder.active = false;
     state.stats.retiredDay = state.time.day;
+    state.stats.retirements = (state.stats.retirements || 0) + 1;
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
     return { ok: true };
   },
@@ -9105,7 +9190,7 @@ __def(__exports, { "renderSector": () => renderSector });
 const { esc, actBtn, eurInput, selectInput, bar, help } = __m["src/ui/dom.js"];
 const { eur, num } = __m["src/ui/format.js"];
 const { AGENCE: D } = __m["src/data/sectors/agence.js"];
-const { hoursPerDay, backlogHours, leadAffordable, recurringRevenue } = __m["src/engine/sectors/agence.js"];
+const { hoursPerDay, backlogHours, leadAffordable, recurringRevenue, refPrice } = __m["src/engine/sectors/agence.js"];
 const { formatDate } = __m["src/engine/calendar.js"];
 
 function renderSector(state) {
@@ -9139,7 +9224,7 @@ function renderSector(state) {
   <section class="card-block">
     <h3>Ton offre</h3>
     <div class="form-row">
-      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(D.refRate, { decimals: false })})` })}
+      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${selectInput('policy', s.policy, [
         { value: 'capacite', label: 'Accepter si j’ai la capacité' },
         { value: 'tout', label: 'Tout accepter' },
@@ -9170,7 +9255,7 @@ __def(__exports, { "renderSector": () => renderSector });
 const { eurInput, selectInput, rangeInput, bar, help } = __m["src/ui/dom.js"];
 const { eur, num } = __m["src/ui/format.js"];
 const { RESTAURANT: D } = __m["src/data/sectors/restaurant.js"];
-const { capacities, stockQty, unitCost, blendedVat } = __m["src/engine/sectors/restaurant.js"];
+const { capacities, stockQty, unitCost, blendedVat, refPrice } = __m["src/engine/sectors/restaurant.js"];
 const { formatDate } = __m["src/engine/calendar.js"];
 
 function renderSector(state) {
@@ -9181,7 +9266,7 @@ function renderSector(state) {
   <section class="card-block">
     <h3>Ta carte</h3>
     <div class="form-row">
-      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, step: 0.1, label: `Ticket moyen TTC (marché ≈ ${eur(D.refPrice)})` })}
+      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, step: 0.1, label: `Ticket moyen TTC (marché ≈ ${eur(refPrice(state))})` })}
       ${selectInput('ingredient', String(s.ingredient), D.ingredients.map((i) => ({ value: String(i.level), label: `${i.label} — ${eur(i.cost)}/portion` })), { type: 'sector', name: 'setIngredient' }, { label: 'Qualité des ingrédients' })}
     </div>
     <p class="small muted">TVA moyenne du ticket : ${num(blendedVat() * 100, 1)} % (repas 12 %, boissons 21 %) ${help('TVA')} · coût matière actuel ${eur(unitCost(state))}/portion (${num((unitCost(state) / (s.price / (1 + blendedVat()))) * 100)} % du prix HT).</p>
@@ -9195,7 +9280,7 @@ function renderSector(state) {
   <section class="card-block">
     <h3>Service d'hier ${s.closedUntil > state.time.day ? `<span class="tag warn">Fermé jusqu’au ${formatDate(s.closedUntil)}</span>` : ''}</h3>
     <p>${t.served} clients servis sur ${t.demand} venus · ${t.lostQueue} partis à cause de la file · ${t.lostStock} faute de stock.</p>
-    <p class="small">Capacité : cuisine ${num(caps.kitchen)} · comptoir ${num(caps.counter)} clients/jour → <strong>${num(caps.total)}</strong>.</p>
+    <p class="small">Capacité : personnel ${num(caps.staff)} · équipement ${num(caps.equipment)} clients/jour → <strong>${num(caps.total)}</strong>.</p>
   </section>
   <section class="card-block">
     <h3>Hygiène ${help('AFSCA')}</h3>
@@ -9268,7 +9353,7 @@ __def(__exports, { "renderSector": () => renderSector });
 const { esc, eurInput, selectInput, rangeInput, bar, help } = __m["src/ui/dom.js"];
 const { eur, num, pct } = __m["src/ui/format.js"];
 const { ARTISAN: D } = __m["src/data/sectors/artisan.js"];
-const { workforce, backlogDays, metier, vans } = __m["src/engine/sectors/artisan.js"];
+const { workforce, backlogDays, metier, vans, refPrice } = __m["src/engine/sectors/artisan.js"];
 const { formatDate } = __m["src/engine/calendar.js"];
 
 function renderSector(state) {
@@ -9286,7 +9371,7 @@ function renderSector(state) {
   <section class="card-block">
     <h3>${esc(m.label)} — tes tarifs</h3>
     <div class="form-row">
-      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(D.refRate, { decimals: false })})` })}
+      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${rangeInput('margin', Math.round(s.margin * 100), { type: 'sector', name: 'setMargin' }, { min: 0, max: 60, step: 1, label: 'Marge sur le matériel', display: `${Math.round(s.margin * 100)} %`, fmt: 'pct' })}
       ${selectInput('policy', s.policy, [{ value: 'capacite', label: 'Ne pas faire de devis si carnet plein' }, { value: 'tout', label: 'Répondre à toutes les demandes' }], { type: 'sector', name: 'setPolicy' }, { label: 'Demandes' })}
     </div>
@@ -9314,7 +9399,7 @@ __def(__exports, { "renderSector": () => renderSector });
 const { eurInput, rangeInput, help } = __m["src/ui/dom.js"];
 const { eur, num, pct } = __m["src/ui/format.js"];
 const { SOUTIEN: D } = __m["src/data/sectors/soutien.js"];
-const { capacity, expectedSuccess } = __m["src/engine/sectors/soutien.js"];
+const { capacity, expectedSuccess, refPrice } = __m["src/engine/sectors/soutien.js"];
 const { formatDate, MONTH_NAMES } = __m["src/engine/calendar.js"];
 
 function renderSector(state) {
@@ -9325,7 +9410,7 @@ function renderSector(state) {
   <section class="card-block">
     <h3>Ton offre</h3>
     <div class="form-row">
-      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, label: `Abonnement mensuel TTC (marché ≈ ${eur(D.refPrice, { decimals: false })})` })}
+      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, label: `Abonnement mensuel TTC (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${rangeInput('group', s.groupSize, { type: 'sector', name: 'setGroupSize' }, { min: D.groupSize.min, max: D.groupSize.max, step: 1, label: 'Élèves par groupe', display: `${s.groupSize}` })}
     </div>
     <p class="small muted">Petits groupes = meilleurs résultats mais moins d'élèves par enseignant. TVA à 21 % dans le jeu (exemption possible selon les cas) ${help('TVA')}.</p>
@@ -10047,7 +10132,7 @@ const panel = {
     return `
     <section class="card-block">
       <h3>Revenu passif ${help('Revenu passif')}</h3>
-      <p>Moyenne 3 mois : <strong class="${p.total >= p.target ? 'good' : ''}">${eur(p.total, { decimals: false })}/mois</strong> sur un objectif de ${eur(p.target, { decimals: false })}/mois.</p>
+      <p>Moyenne 3 mois : <strong class="${p.total >= p.target ? 'good' : ''}">${eur(p.total, { decimals: false })}/mois</strong> sur un objectif de ${eur(p.target, { decimals: false })}/mois <span class="muted small">(${eur(state.passiveTarget, { decimals: false })} de 2026, indexés sur l'inflation)</span>.</p>
       <p>${bar(Math.max(0, p.total), p.target)} ${pct(Math.max(0, p.total) / Math.max(1, p.target))}</p>
       <table class="table"><tbody>${parts.map(([k, v]) => `<tr><td>${esc(PART_LABELS[k] || k)}</td><td class="num ${v < 0 ? 'bad' : ''}">${eur(v, { decimals: false })}/mois</td></tr>`).join('')}</tbody></table>
       <p class="small muted">${state.staff.founder.active ? `Ton entreprise ne compte pas encore : il faut ${manager ? 'te retirer de l’opérationnel (onglet Équipe)' : 'recruter un·e gérant·e puis te retirer de l’opérationnel'} ${help('Gérant')}.` : 'Ton entreprise tourne sans toi : son bénéfice net compte comme revenu passif.'} La bourse compte pour 4 %/an de sa valeur ${help('Règle des 4 %')}.</p>
@@ -10096,7 +10181,8 @@ const panel = {
     const pc = el.querySelector('#passive-chart');
     if (pc) {
       const h = state.passive.history.slice(-36);
-      drawLines(pc, { labels: h.map(() => ''), series: [{ name: 'Revenu passif', color: '#a7f070', values: h }, { name: 'Objectif', color: '#ffcd75', values: h.map(() => state.passiveTarget), dashed: true }] });
+      const target = passiveIncome(state).target;
+      drawLines(pc, { labels: h.map(() => ''), series: [{ name: 'Revenu passif', color: '#a7f070', values: h }, { name: 'Objectif', color: '#ffcd75', values: h.map(() => target), dashed: true }] });
     }
     const mc = el.querySelector('#market-chart');
     if (mc) {

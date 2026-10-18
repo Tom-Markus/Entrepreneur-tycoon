@@ -10,6 +10,7 @@ import { modMult } from '../modifiers.js';
 import { productivity, qualityOf, countRole } from '../systems/staff.js';
 import { rateCustomer, changeReputation } from '../systems/company.js';
 import { diffOf, playerMarket, baseWhy, prodMod } from './common.js';
+import { priceLevel } from '../systems/core.js';
 import { log } from '../log.js';
 import { clamp } from '../money.js';
 
@@ -35,16 +36,16 @@ export function init(state) {
   };
 }
 
-export function refPrice() {
-  return D.refRate;
+export function refPrice(state) {
+  return Math.round(D.refRate * priceLevel(state));
 }
 
 export function priceIndex(state) {
-  return (state.sector.rate / D.refRate) * (0.85 + 0.15 * ((1 + state.sector.margin) / (1 + D.refMargin)));
+  return (state.sector.rate / refPrice(state)) * (0.85 + 0.15 * ((1 + state.sector.margin) / (1 + D.refMargin)));
 }
 
 export function marketValue(state) {
-  return D.marketLeads * diffOf(state).marketMult * 21 * 1.6 * D.hoursPerDay * D.refRate * 0.85;
+  return D.marketLeads * diffOf(state).marketMult * 21 * 1.6 * D.hoursPerDay * refPrice(state) * 0.85;
 }
 
 function vans(state) {
@@ -95,7 +96,7 @@ function availableJobs(state) {
 
 function jobValue(state, t, rate = state.sector.rate, margin = state.sector.margin) {
   const labor = t.days * D.hoursPerDay * rate;
-  const mat = t.materials * modMult(state, 'materialCost') * (1 + margin);
+  const mat = t.materials * priceLevel(state) * modMult(state, 'materialCost') * (1 + margin);
   return Math.round(labor + mat + (t.urgent ? D.urgentFee : 0));
 }
 
@@ -105,16 +106,16 @@ function womFactor(state) {
 
 export function leadRate(state) {
   const d = dateOf(state.time.day);
-  const m = playerMarket(state, D, priceIndex(state) * D.refRate, D.refRate, 1);
-  const season = metier(state).seasonality[d.month];
   const brand = upgradeEffect(state, 'leadsMult');
   const wom = womFactor(state);
-  const lambda = D.marketLeads * diffOf(state).marketMult * season * m.eco * m.ev * m.share * brand * wom;
+  const m = playerMarket(state, D, priceIndex(state), 1, brand * wom);
+  const season = metier(state).seasonality[d.month];
+  const lambda = D.marketLeads * diffOf(state).marketMult * season * m.eco * m.ev * m.share;
   return { lambda, m, season, brand, wom };
 }
 
 function acceptProb(state, t, price) {
-  const ref = jobValue(state, t, D.refRate, D.refMargin);
+  const ref = jobValue(state, t, refPrice(state), D.refMargin);
   const plan = Math.min(2, countRole(state, 'planificateur')) * D.roles.planificateur.accept;
   let p = D.baseAccept * Math.pow(ref / price, 1.3) * (0.7 + state.company.reputation / 170) * (1 + plan + upgradeEffect(state, 'accept'));
   if (t.urgent) p = Math.min(0.95, p * 1.3);
@@ -142,9 +143,16 @@ function newQuote(state, rng) {
 
 function startJob(state, q) {
   const t = metier(state).jobs.find((j) => j.id === q.type);
+  // Acompte de 30 % à la commande pour les gros chantiers (pratique courante)
+  let deposit = 0;
+  if (!t.payNow && t.materials >= 50_000) {
+    deposit = Math.round(q.price * 0.3);
+    earn(state, deposit, q.vat, 'chantiers');
+  }
   state.sector.jobs.push({
+    deposit,
     id: q.id, type: q.type, label: q.label, price: q.price, vat: q.vat, daysTotal: t.days, daysDone: 0,
-    materials: Math.round(t.materials * modMult(state, 'materialCost') * (1 - upgradeEffect(state, 'materialCut'))),
+    materials: Math.round(t.materials * priceLevel(state) * modMult(state, 'materialCost') * (1 - upgradeEffect(state, 'materialCut'))),
     matPaid: false, payNow: !!t.payNow, urgent: !!t.urgent, payDelay: q.payDelay || D.paymentDays,
   });
   if (t.urgent) state.sector.jobs.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0));
@@ -153,8 +161,9 @@ function startJob(state, q) {
 function finishJob(state, j, rng) {
   const s = state.sector;
   s.jobs = s.jobs.filter((x) => x !== j);
-  if (j.payNow) earn(state, j.price, j.vat, 'chantiers');
-  else invoice(state, j.price, j.vat, 'chantiers', { dueIn: j.payDelay, defaultProb: D.defaultProb * modMult(state, 'defaultRisk'), lateProb: D.lateProb, label: j.label, rng });
+  const due = j.price - (j.deposit || 0);
+  if (j.payNow) earn(state, due, j.vat, 'chantiers');
+  else invoice(state, due, j.vat, 'chantiers', { dueIn: j.payDelay, defaultProb: D.defaultProb * modMult(state, 'defaultRisk'), lateProb: D.lateProb, label: j.label, rng });
   const q = state.company.quality * rng.range(0.9, 1.1);
   const score = clamp(50 + 80 * (q - 0.85), 0, 100);
   rateCustomer(state, score, 0.08);
@@ -164,7 +173,7 @@ function finishJob(state, j, rng) {
     changeReputation(state, -1.5);
     s.wom = Math.max(0, s.wom - 3);
     log(state, 'bad', `Malfaçon signalée sur « ${j.label} » : il faudra repasser.`);
-    s.jobs.push({ ...j, id: ++s.seq, label: `Reprise : ${j.label}`, price: 0, daysTotal: j.daysTotal * 0.25, daysDone: 0, materials: 0, matPaid: true, payNow: true });
+    s.jobs.push({ ...j, id: ++s.seq, label: `Reprise : ${j.label}`, price: 0, deposit: 0, daysTotal: j.daysTotal * 0.25, daysDone: 0, materials: 0, matPaid: true, payNow: true });
   }
   if (j.type === 'entretien' && upgradeEffect(state, 'contracts') > 0 && rng.chance(D.maintenanceContract.signProb)) s.contracts++;
   s.stats.jobsDone++;

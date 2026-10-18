@@ -32,6 +32,9 @@ export const ECONOMY = {
   energyBase: 6_000,
   // Taux de l'épargne et des crédits (pilotés par la « BCE » du jeu).
   baseRate: 0.0225, // taux directeur simulé de départ
+  // Inflation annuelle moyenne simulée (cible BCE ≈ 2 %) et sa volatilité. [approx]
+  inflation: 0.02,
+  inflationVol: 0.006,
 };
 
 /** Libellés des catégories comptables (revenus et dépenses). */

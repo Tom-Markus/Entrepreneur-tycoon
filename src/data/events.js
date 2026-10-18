@@ -238,11 +238,11 @@ export const EVENTS = [
     effects: [{ t: 'baseRate', v: -0.005 }],
   },
   {
-    id: 'indexation', kind: 'bad', weight: 1, cooldown: 330, minDay: 300,
-    title: 'Indexation automatique des salaires',
-    text: 'L’indice-santé a dépassé l’indice-pivot : les salaires sont indexés automatiquement (spécificité belge).',
+    id: 'saut_index', kind: 'good', weight: 0.5, cooldown: 1800, minDay: 300,
+    title: 'Saut d’index',
+    text: 'Le gouvernement décide un « saut d’index » : cette année, les salaires ne seront pas indexés (comme en 2015). Bon pour tes marges, moins pour le moral.',
     when: hasEmployees,
-    effects: [{ t: 'salaryIndex', pct: 0.02 }],
+    effects: [{ t: 'flagYear', key: 'skipIndexYear' }, { t: 'motivation', v: -5 }],
   },
   {
     id: 'nouvelle_norme', kind: 'bad', weight: 1, cooldown: 540,

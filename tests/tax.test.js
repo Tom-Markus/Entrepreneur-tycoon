@@ -83,7 +83,8 @@ test('SRL : ISOC au taux plein si rémunération trop basse, précompte retenu',
   const r = s.tax.results[0];
   assert.equal(r.legal, 'srl');
   assert.ok(r.directorPay > 0);
-  if (r.taxable > 0 && r.directorPay < 5_000_000) assert.equal(r.reduced, false);
+  if (r.taxable > r.directorPay && r.directorPay < 5_000_000) assert.equal(r.reduced, false);
+  else if (r.taxable <= r.directorPay) assert.equal(r.reduced, true, 'rémunération ≥ bénéfice : taux réduit');
   assert.ok(s.tax.schedule.some((x) => x.label.startsWith('ISOC')) || r.isoc === 0);
 });
 

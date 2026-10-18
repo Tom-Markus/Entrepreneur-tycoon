@@ -18,7 +18,7 @@ export const SOUTIEN = {
   homeSeats: 4, // enseignants (temps partiel) dans le local de départ
   staffSeatKey: 'staffSeats',
 
-  refPrice: 17_500, // abonnement mensuel de référence TTC : 175 €
+  refPrice: 19_000, // abonnement mensuel de référence TTC : 190 € (≈ 12 h de cours en groupe)
   minPrice: 5_000,
   maxPrice: 50_000,
   elasticity: 1.5,
@@ -27,21 +27,21 @@ export const SOUTIEN = {
   // Nouvelles familles qui cherchent un soutien, par mois, sur le marché local
   marketPool: 140,
   seasonality: [1.1, 0.8, 0.9, 1, 1.4, 1.1, 0.25, 0.7, 2.2, 1.2, 1.1, 1.3],
-  churnMonthly: 0.06,
+  churnMonthly: 0.045,
   yearEndChurn: 0.6, // départ massif fin juin
   examMonths: [0, 5], // sessions de fin janvier et fin juin
   groupSize: { min: 3, max: 12, default: 6 },
   slotsPerTeacher: 5, // groupes par enseignant (le nombre d'élèves = groupes × taille)
-  founderSlots: 5,
-  baseSeats: 30, // places dans le local de départ
+  founderSlots: 7, // le fondateur enseigne à temps plein
+  baseSeats: 40, // places dans le local de départ
   materialPerStudent: 400, // fournitures/mois
   stage: { price: 18_000, month: [6, 7], pool: 70 }, // stages d'été (si amélioration)
 
   roles: {
-    etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true,
-      desc: 'Temps partiel, bon marché, résultats moyens (3 groupes).' },
-    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 5, teach: true,
-      desc: 'Mi-temps, cher mais efficace (5 groupes).' },
+    etudiant: { id: 'etudiant', label: 'Étudiant·e jobiste', baseSalary: 120_000, skillRange: [25, 65], slots: 3, teach: true, flex: true,
+      desc: 'Contrat étudiant payé à l’heure : coûte selon le remplissage (3 groupes), résultats moyens.' },
+    enseignant: { id: 'enseignant', label: 'Enseignant·e diplômé·e', baseSalary: 230_000, skillRange: [50, 90], slots: 6, teach: true, flex: true,
+      desc: 'Payé à l’heure de cours donnée (coûte selon le remplissage), cher mais efficace (6 groupes).' },
     coordinateur: { id: 'coordinateur', label: 'Coordinateur·rice pédagogique', baseSalary: 320_000, skillRange: [45, 90], max: 1, success: 0.05,
       desc: 'Suivi des élèves et lien avec les parents : +5 points de réussite, moins de départs.' },
   },

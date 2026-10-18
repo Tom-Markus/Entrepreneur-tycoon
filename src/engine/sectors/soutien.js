@@ -9,6 +9,7 @@ import { modMult } from '../modifiers.js';
 import { productivity, countRole } from '../systems/staff.js';
 import { rateCustomer, changeReputation } from '../systems/company.js';
 import { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } from './common.js';
+import { priceLevel } from '../systems/core.js';
 import { log } from '../log.js';
 import { clamp } from '../money.js';
 
@@ -31,12 +32,12 @@ export function init(state) {
   };
 }
 
-export function refPrice() {
-  return D.refPrice;
+export function refPrice(state) {
+  return Math.round(D.refPrice * priceLevel(state));
 }
 
 export function priceIndex(state) {
-  return state.sector.price / D.refPrice;
+  return state.sector.price / refPrice(state);
 }
 
 function marketMult(state) {
@@ -44,7 +45,7 @@ function marketMult(state) {
 }
 
 export function marketValue(state) {
-  return D.marketPool * 4 * marketMult(state) * diffOf(state).marketMult * htFromTtc(state, D.refPrice, D.vatRate);
+  return D.marketPool * 4 * marketMult(state) * diffOf(state).marketMult * htFromTtc(state, refPrice(state), D.vatRate);
 }
 
 /** Compétence moyenne des enseignants (fondateur inclus), pondérée par leurs groupes. */
@@ -100,7 +101,7 @@ function examBoost(state, month) {
 export function enrollmentRate(state) {
   const d = dateOf(state.time.day);
   const extra = 1 + upgradeEffect(state, 'attraction') + (upgradeEffect(state, 'resultsVisible') && state.sector.lastSuccess > 0.8 ? 0.1 : 0);
-  const m = playerMarket(state, D, state.sector.price, D.refPrice, extra);
+  const m = playerMarket(state, D, state.sector.price, refPrice(state), extra);
   const season = D.seasonality[d.month] * examBoost(state, d.month);
   const perDay = (D.marketPool * marketMult(state) * diffOf(state).marketMult * season * m.eco * m.ev * m.share * modMult(state, 'enrollment')) / DAYS_PER_MONTH;
   return { perDay, m, season, location: marketMult(state) };
@@ -120,7 +121,7 @@ export function daily(state, rng) {
   s.stats.maxStudents = Math.max(s.stats.maxStudents, s.students);
   s.today = { joined, capacity: cap.total, arrivals };
   // Satisfaction des familles : rapport qualité/prix et taille des groupes
-  const score = 48 + 60 * (expectedSuccess(state) - 0.65) + 25 * (D.refPrice / s.price - 1) + 2 * (D.groupSize.default - s.groupSize);
+  const score = 48 + 60 * (expectedSuccess(state) - 0.65) + 25 * (refPrice(state) / s.price - 1) + 2 * (D.groupSize.default - s.groupSize);
   rateCustomer(state, clamp(score, 0, 100), 0.01);
   if (arrivals > joined) rateCustomer(state, 35, 0.01);
   // Fournitures
@@ -129,7 +130,7 @@ export function daily(state, rng) {
   state.staff.lastWorkload = cap.teach > 0 ? s.students / cap.teach : 0;
   state.company.demandPerDay = er.perDay;
   state.company.why = [
-    ...baseWhy(er.m, `Abonnement ${(s.price / 100).toFixed(0)} €/mois (marché 175 €).`),
+    ...baseWhy(er.m, `Abonnement ${(s.price / 100).toFixed(0)} €/mois (marché ${Math.round(refPrice(state) / 100)} €).`),
     { label: 'Calendrier scolaire', value: er.season, hint: 'Rentrée et avant-examens : affluence. Été : désert.' },
     { label: 'Implantations', value: er.location, hint: 'Antenne, cours hybrides.' },
   ];
@@ -145,10 +146,10 @@ export function monthEnd(state, rng) {
   if (ttc > 0) earn(state, htFromTtc(state, ttc, D.vatRate), D.vatRate, 'abonnements');
   // Stages d'été
   if (upgradeEffect(state, 'stages') > 0 && D.stage.month.includes(d.month)) {
-    const m = playerMarket(state, D, s.price, D.refPrice, 1);
+    const m = playerMarket(state, D, s.price, refPrice(state), 1);
     const n = Math.min(capacity(state).total, rng.poisson(D.stage.pool * m.share * marketMult(state) * diffOf(state).marketMult * 2));
     if (n > 0) {
-      earn(state, htFromTtc(state, n * D.stage.price, D.vatRate), D.vatRate, 'stages');
+      earn(state, htFromTtc(state, n * Math.round(D.stage.price * priceLevel(state)), D.vatRate), D.vatRate, 'stages');
       s.stageStudents += n;
       log(state, 'good', `Stages d'été : ${n} participants.`);
     }

@@ -3,7 +3,7 @@
 import { esc, eurInput, selectInput, rangeInput, bar, help } from '../dom.js';
 import { eur, num, pct } from '../format.js';
 import { ARTISAN as D } from '../../data/sectors/artisan.js';
-import { workforce, backlogDays, metier, vans } from '../../engine/sectors/artisan.js';
+import { workforce, backlogDays, metier, vans, refPrice } from '../../engine/sectors/artisan.js';
 import { formatDate } from '../../engine/calendar.js';
 
 export function renderSector(state) {
@@ -21,7 +21,7 @@ export function renderSector(state) {
   <section class="card-block">
     <h3>${esc(m.label)} — tes tarifs</h3>
     <div class="form-row">
-      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(D.refRate, { decimals: false })})` })}
+      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${rangeInput('margin', Math.round(s.margin * 100), { type: 'sector', name: 'setMargin' }, { min: 0, max: 60, step: 1, label: 'Marge sur le matériel', display: `${Math.round(s.margin * 100)} %`, fmt: 'pct' })}
       ${selectInput('policy', s.policy, [{ value: 'capacite', label: 'Ne pas faire de devis si carnet plein' }, { value: 'tout', label: 'Répondre à toutes les demandes' }], { type: 'sector', name: 'setPolicy' }, { label: 'Demandes' })}
     </div>

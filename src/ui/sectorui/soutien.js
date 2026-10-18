@@ -3,7 +3,7 @@
 import { eurInput, rangeInput, help } from '../dom.js';
 import { eur, num, pct } from '../format.js';
 import { SOUTIEN as D } from '../../data/sectors/soutien.js';
-import { capacity, expectedSuccess } from '../../engine/sectors/soutien.js';
+import { capacity, expectedSuccess, refPrice } from '../../engine/sectors/soutien.js';
 import { formatDate, MONTH_NAMES } from '../../engine/calendar.js';
 
 export function renderSector(state) {
@@ -14,7 +14,7 @@ export function renderSector(state) {
   <section class="card-block">
     <h3>Ton offre</h3>
     <div class="form-row">
-      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, label: `Abonnement mensuel TTC (marché ≈ ${eur(D.refPrice, { decimals: false })})` })}
+      ${eurInput('price', s.price, { type: 'sector', name: 'setPrice' }, { min: D.minPrice / 100, max: D.maxPrice / 100, label: `Abonnement mensuel TTC (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${rangeInput('group', s.groupSize, { type: 'sector', name: 'setGroupSize' }, { min: D.groupSize.min, max: D.groupSize.max, step: 1, label: 'Élèves par groupe', display: `${s.groupSize}` })}
     </div>
     <p class="small muted">Petits groupes = meilleurs résultats mais moins d'élèves par enseignant. TVA à 21 % dans le jeu (exemption possible selon les cas) ${help('TVA')}.</p>

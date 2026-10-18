@@ -19,16 +19,16 @@ export const AGENCE = {
   refRate: 6_500, // taux horaire de référence du marché : 65 €/h HT
   minRate: 2_500,
   maxRate: 20_000,
-  elasticity: 1.25,
+  elasticity: 1.6,
 
   // Demande : demandes de projets par jour ouvré pour tout le marché local.
-  marketLeads: 1.9,
+  marketLeads: 1.4,
   seasonality: [1.1, 1.05, 1.05, 1, 1, 0.95, 0.7, 0.55, 1.15, 1.1, 1.05, 0.8],
   leadExpiryDays: 6,
   marketingRef: 50_000, // 500 €/mois = budget marketing « de référence »
 
   // Capacité
-  founderHours: 6, // heures facturables par jour ouvré
+  founderHours: 5.5, // heures facturables par jour ouvré (le reste : devis, administratif, prospection)
   homeSeats: 2, // places de travail sans bureau (fondateur + 1 à distance)
 
   // Paiement
@@ -58,30 +58,30 @@ export const AGENCE = {
     defaultPrice: 2_900, // 29 €/mois HT
     minPrice: 900,
     maxPrice: 15_000,
-    baseNewPerDay: 0.25,
-    churnMonthly: 0.04,
-    serverCostPerSub: 150,
+    baseNewPerDay: 0.12,
+    churnMonthly: 0.045,
+    serverCostPerSub: 300,
     serverCostBase: 5_000,
     supportHoursPerSub: 0.08,
-    potential: 2_500,
+    potential: 900, // marché d'un SaaS de niche belge
     elasticity: 1.5,
   },
 
   roles: {
     developpeur: {
-      id: 'developpeur', label: 'Développeur·se', baseSalary: 330_000, skillRange: [30, 85],
-      hours: 6.5, desc: 'Produit des heures facturables.',
+      id: 'developpeur', label: 'Développeur·se', baseSalary: 380_000, skillRange: [30, 85],
+      hours: 5.5, desc: 'Produit des heures facturables (≈ 5,5 h/jour).',
     },
     designer: {
-      id: 'designer', label: 'Designer UX/UI', baseSalary: 300_000, skillRange: [30, 85],
-      hours: 5.5, quality: 0.05, desc: 'Produit des heures et améliore la qualité (max 3 comptent).',
+      id: 'designer', label: 'Designer UX/UI', baseSalary: 340_000, skillRange: [30, 85],
+      hours: 4.5, quality: 0.05, desc: 'Produit des heures et améliore la qualité (max 3 comptent).',
     },
     commercial: {
-      id: 'commercial', label: 'Commercial·e', baseSalary: 310_000, skillRange: [30, 85],
-      leads: 0.28, desc: 'Ramène des demandes de projets (+28 % chacun, rendements décroissants).',
+      id: 'commercial', label: 'Commercial·e', baseSalary: 360_000, skillRange: [30, 85],
+      leads: 0.18, desc: 'Rend l’agence plus visible (+18 % d’attractivité chacun, rendements décroissants).',
     },
     chef_projet: {
-      id: 'chef_projet', label: 'Chef·fe de projet', baseSalary: 390_000, skillRange: [40, 90], max: 2,
+      id: 'chef_projet', label: 'Chef·fe de projet', baseSalary: 450_000, skillRange: [40, 90], max: 2,
       overrun: 0.7, prod: 0.06, desc: 'Réduit les dépassements d’heures et organise l’équipe (+6 % de productivité).',
     },
   },
@@ -102,8 +102,8 @@ export const AGENCE = {
     { id: 'plateau', cat: 'locaux', label: 'Grand plateau', cost: 2_500_000, rent: 350_000, requires: ['bureau'], effects: { seats: 18, leadsMult: 1.1, motivation: 4 },
       desc: '30 places, cuisine, terrasse. Loyer 3 500 €/mois.' },
     // Matériel
-    { id: 'laptops', cat: 'materiel', label: 'Ordinateurs performants', cost: 350_000, effects: { prodMult: 1.08 },
-      desc: '+8 % de productivité pour toute l’équipe.' },
+    { id: 'laptops', cat: 'materiel', label: 'Ordinateurs performants', cost: 350_000, effects: { prodMult: 1.04 },
+      desc: '+4 % de productivité pour toute l’équipe.' },
     { id: 'suite_creative', cat: 'materiel', label: 'Suite créative', cost: 120_000, monthly: 6_000, effects: { quality: 0.07 },
       desc: 'Qualité +7 %. Abonnement 60 €/mois.' },
     { id: 'cloud', cat: 'materiel', label: 'Infrastructure cloud', cost: 250_000, monthly: 12_000, effects: { maintChurnMult: 0.7 },
@@ -125,10 +125,10 @@ export const AGENCE = {
     { id: 'grands_comptes', cat: 'marque', label: 'Références grands comptes', cost: 600_000, requires: ['seo_agence'], minRep: 50, effects: { budgetMult: 1.1, bigProjects: 1 },
       desc: 'Clients prêts à payer +10 %, plus de gros projets.' },
     // Automatisation
-    { id: 'composants', cat: 'automatisation', label: 'Bibliothèque de composants', cost: 300_000, effects: { prodMult: 1.12 },
-      desc: 'Réutiliser son code : +12 % de productivité.' },
-    { id: 'ia_dev', cat: 'automatisation', label: 'Assistants IA de développement', cost: 400_000, monthly: 10_000, requires: ['composants'], effects: { prodMult: 1.15 },
-      desc: '+15 % de productivité. Abonnement 100 €/mois.' },
+    { id: 'composants', cat: 'automatisation', label: 'Bibliothèque de composants', cost: 300_000, effects: { prodMult: 1.06 },
+      desc: 'Réutiliser son code : +6 % de productivité.' },
+    { id: 'ia_dev', cat: 'automatisation', label: 'Assistants IA de développement', cost: 400_000, monthly: 10_000, requires: ['composants'], effects: { prodMult: 1.08 },
+      desc: '+8 % de productivité. Abonnement 100 €/mois.' },
     { id: 'saas', cat: 'automatisation', label: 'Développer un SaaS', cost: 500_000, requires: ['cloud', 'agile'], effects: { unlockSaas: 1 },
       desc: 'Lance un projet interne de 600 h. Une fois en ligne, des abonnés paient chaque mois.' },
     { id: 'saas_growth', cat: 'automatisation', label: 'Moteur de croissance SaaS', cost: 800_000, requires: ['saas'], requiresFlag: 'saasLive', effects: { saasGrowthMult: 1.7 },

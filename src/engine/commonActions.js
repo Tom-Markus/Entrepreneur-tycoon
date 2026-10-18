@@ -73,6 +73,7 @@ registerActions({
     if (!staff.hasManager(state)) return { ok: false, message: 'Il faut d’abord recruter un·e gérant·e compétent·e.' };
     state.staff.founder.active = false;
     state.stats.retiredDay = state.time.day;
+    state.stats.retirements = (state.stats.retirements || 0) + 1;
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
     return { ok: true };
   },

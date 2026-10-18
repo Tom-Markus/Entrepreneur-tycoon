@@ -13,6 +13,18 @@ export function init(state) {
   state.loanSeq = 0;
   state.ownership = { founder: 1, investors: [] };
   state.offers = { investor: null };
+  // Prêt de démarrage (voir company.init) : 48 mois au taux du marché
+  if (state.flags.starterLoan) {
+    const amount = state.flags.starterLoan;
+    const rate = state.world.baseRate + L.baseSpread + (state.meta.legal === 'independant' ? L.independantPremium : 0) + 0.01;
+    const payment = annuity(amount, rate, 48);
+    state.loanSeq += 1;
+    state.loans.push({ id: state.loanSeq, principal: amount, remaining: amount, rate, months: 48, monthsLeft: 48, payment, startDay: 0 });
+    receive(state, amount, 'pret');
+    state.stats.loansTaken = 1;
+    log(state, 'info', `Ton apport ne couvre pas l'équipement de départ : la banque t'accorde un prêt de démarrage de ${Math.round(amount / 100)} € (48 mois, mensualité ${Math.round(payment / 100)} €).`, true);
+    delete state.flags.starterLoan;
+  }
 }
 
 export function totalDebt(state) {

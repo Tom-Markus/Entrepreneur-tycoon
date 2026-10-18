@@ -7,7 +7,7 @@ import { trigger, describeEffects, eventById } from '../src/engine/events.js';
 import { SECTOR_DATA } from '../src/engine/sectors/registry.js';
 import { monthEnd as compMonthEnd } from '../src/engine/systems/competitors.js';
 
-const KNOWN = new Set(['cash', 'personal', 'rep', 'sat', 'mod', 'motivation', 'loseEmployee', 'employeeSkill', 'employeeRaise', 'employeeAbsent', 'salaryIndex', 'candidate', 'fixedCost', 'chain', 'flag', 'flagUntil', 'economyTrend', 'baseRate', 'competitorPromo', 'competitorBankrupt', 'newCompetitor', 'investorOffer', 'founderEnergy', 'stat', 'sector', 'chance', 'log']);
+const KNOWN = new Set(['cash', 'personal', 'rep', 'sat', 'mod', 'motivation', 'loseEmployee', 'employeeSkill', 'employeeRaise', 'employeeAbsent', 'salaryIndex', 'candidate', 'fixedCost', 'chain', 'flag', 'flagYear', 'flagUntil', 'economyTrend', 'baseRate', 'competitorPromo', 'competitorBankrupt', 'newCompetitor', 'investorOffer', 'founderEnergy', 'stat', 'sector', 'chance', 'log']);
 
 function walk(effects, fn) {
   for (const e of effects || []) {

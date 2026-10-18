@@ -114,10 +114,12 @@ export function monthEnd(state, rng) {
       c.priceIdx += (pIdx * 0.97 - c.priceIdx) * 0.3;
       c.quality += ((state.company.quality || 1) * 0.97 - c.quality) * 0.15;
     }
-    // Réactions générales à un joueur dominant
-    if (pShare > 0.4 && rng.chance(0.12 * a)) {
-      c.mkt *= 1.15;
-      c.quality = Math.min(1.5, c.quality + 0.03);
+    // Réactions à un joueur dominant : les concurrents investissent pour reprendre des clients
+    if (pShare > 0.3) {
+      const pressure = (pShare - 0.3) * a;
+      c.mkt = Math.min(6, c.mkt * (1 + 0.25 * pressure));
+      c.quality = Math.min(1.5, c.quality + 0.04 * pressure);
+      c.reputation = Math.min(95, c.reputation + 4 * pressure);
     }
     // Promotions
     if (c.promoUntil < state.time.day && rng.chance(st.promoChance * a)) {
@@ -140,8 +142,9 @@ export function monthEnd(state, rng) {
       if (state.compRespawnDay == null) state.compRespawnDay = state.time.day + rng.int(P.respawnDays[0], P.respawnDays[1]);
     }
   }
-  // Nouvel entrant
+  // Nouvel entrant : un marché dominé et rentable attire de nouveaux acteurs
   const alive = state.competitors.filter((c) => c.alive).length;
+  if (pShare > 0.45 && alive < 5 && rng.chance(0.06 * a)) spawnCompetitor(state, rng);
   const min = DIFFICULTIES[state.meta.difficulty].competitorCount[0];
   if (state.compRespawnDay != null && state.time.day >= state.compRespawnDay && alive < min + 1) {
     spawnCompetitor(state, rng);

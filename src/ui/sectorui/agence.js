@@ -3,7 +3,7 @@
 import { esc, actBtn, eurInput, selectInput, bar, help } from '../dom.js';
 import { eur, num } from '../format.js';
 import { AGENCE as D } from '../../data/sectors/agence.js';
-import { hoursPerDay, backlogHours, leadAffordable, recurringRevenue } from '../../engine/sectors/agence.js';
+import { hoursPerDay, backlogHours, leadAffordable, recurringRevenue, refPrice } from '../../engine/sectors/agence.js';
 import { formatDate } from '../../engine/calendar.js';
 
 export function renderSector(state) {
@@ -37,7 +37,7 @@ export function renderSector(state) {
   <section class="card-block">
     <h3>Ton offre</h3>
     <div class="form-row">
-      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(D.refRate, { decimals: false })})` })}
+      ${eurInput('rate', s.rate, { type: 'sector', name: 'setRate' }, { min: D.minRate / 100, max: D.maxRate / 100, label: `Taux horaire HT (marché ≈ ${eur(refPrice(state), { decimals: false })})` })}
       ${selectInput('policy', s.policy, [
         { value: 'capacite', label: 'Accepter si j’ai la capacité' },
         { value: 'tout', label: 'Tout accepter' },

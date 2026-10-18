@@ -9,7 +9,7 @@ import { upgradeEffect } from '../upgrades.js';
 import { modMult } from '../modifiers.js';
 import { productivity, qualityOf, countRole, teamBonus } from '../systems/staff.js';
 import { rateCustomer, changeReputation } from '../systems/company.js';
-import { economyIndex } from '../systems/core.js';
+import { economyIndex, priceLevel } from '../systems/core.js';
 import { log } from '../log.js';
 import { clamp } from '../money.js';
 
@@ -38,7 +38,7 @@ export function init(state) {
 export function hoursPerDay(state) {
   const st = state.staff;
   let h = 0;
-  if (st.founder.active) h += D.founderHours * (0.6 + st.founder.skill / 140) * (st.founder.energy / 100 * 0.4 + 0.6);
+  if (st.founder.active) h += D.founderHours * (0.7 + st.founder.skill / 250) * (st.founder.energy / 100 * 0.4 + 0.6);
   for (const e of st.employees) {
     const r = D.roles[e.role];
     if (r && r.hours) h += r.hours * productivity(state, e);
@@ -82,7 +82,7 @@ function overrunMult(state) {
 }
 
 export function refPrice(state) {
-  return Math.round(D.refRate * modMult(state, 'refPrice'));
+  return Math.round(D.refRate * modMult(state, 'refPrice') * priceLevel(state));
 }
 
 /** Attractivité du joueur (part des demandes du marché). */
@@ -96,7 +96,8 @@ export function playerAttraction(state) {
     reputation: state.company.reputation,
     marketing: state.company.marketing,
     marketingRef: D.marketingRef,
-    extra: credibility * modMult(state, 'attraction'),
+    // Marque et commerciaux améliorent l'attractivité avec des rendements décroissants (racine carrée)
+    extra: credibility * modMult(state, 'attraction') * Math.sqrt(upgradeEffect(state, 'leadsMult') * commercialFactor(state)),
   });
 }
 
@@ -117,7 +118,8 @@ export function leadRate(state) {
   const ev = modMult(state, 'demand');
   const brand = upgradeEffect(state, 'leadsMult');
   const sales = commercialFactor(state);
-  const lambda = D.marketLeads * diff.marketMult * season * eco * ev * share * brand * sales;
+  // marque et commerciaux sont déjà dans l'attractivité (donc dans la part de marché)
+  const lambda = D.marketLeads * diff.marketMult * season * eco * ev * share;
   return { lambda, share, att, season, eco, ev, brand, sales };
 }
 
@@ -319,7 +321,7 @@ export function daily(state, rng) {
   // 6) Panneau « pourquoi ? »
   state.company.why = [
     { label: 'Part de marché', value: lr.share, kind: 'pct', hint: 'Ta part des demandes face aux concurrents.' },
-    { label: 'Prix (taux horaire)', value: lr.att.parts.prix, hint: 'Plus ton taux dépasse 65 €/h, moins on te choisit.' },
+    { label: 'Prix (taux horaire)', value: lr.att.parts.prix, hint: `Plus ton taux dépasse le prix du marché (${Math.round(refPrice(state) / 100)} €/h), moins on te choisit.` },
     { label: 'Qualité', value: lr.att.parts.qualite, hint: 'Compétence de l’équipe, designers et améliorations.' },
     { label: 'Réputation', value: lr.att.parts.reputation, hint: 'Projets livrés à temps et bien faits.' },
     { label: 'Marketing', value: lr.att.parts.marketing, hint: 'Rendements décroissants : doubler le budget ne double pas les clients.' },
@@ -348,7 +350,7 @@ function saasDaily(state, rng) {
   const mf = marketingFactor(state.company.marketing, D.marketingRef);
   const rf = reputationFactor(state.company.reputation);
   const sat = Math.max(0, 1 - s.saas.subscribers / c.potential);
-  const lambda = c.baseNewPerDay * upgradeEffect(state, 'saasGrowthMult') * mf * rf * pf * sat * economyIndex(state) * (1 + s.saas.subscribers / 400);
+  const lambda = c.baseNewPerDay * upgradeEffect(state, 'saasGrowthMult') * mf * rf * pf * sat * economyIndex(state) * (1 + s.saas.subscribers / 1500);
   const gained = rng.poisson(lambda);
   const churnBoost = state.company.quality < 0.9 ? 1.5 : 1;
   const lost = rng.poisson((s.saas.subscribers * c.churnMonthly * churnBoost * modMult(state, 'saasChurn')) / 30);

@@ -4,9 +4,12 @@ import { INVESTMENTS as I } from '../../data/investments.js';
 import { FISCALITE as F } from '../../data/fiscalite.js';
 import { hasManager } from './staff.js';
 import { savingsRate } from './investments.js';
-import { netWorth } from '../selectors.js';
+import { netWorth, passiveTargetNow } from '../selectors.js';
 import { ippTax, socialAnnualDue, socialBaseFromProfit, isocTax, reducedRateEligible, directorIpp } from '../taxmath.js';
 import { log } from '../log.js';
+
+/** Part du bénéfice distribuable (le reste est réinvesti). */
+export const BUSINESS_PAYOUT = 0.7;
 
 export function init(state) {
   state.passive = { total: 0, avg3: 0, parts: {}, history: [] };
@@ -15,9 +18,12 @@ export function init(state) {
 /** Bénéfice net mensuel que l'entreprise verse au fondateur, après impôts (estimation). */
 export function businessPassive(state) {
   if (state.staff.founder.active || !hasManager(state)) return 0;
-  const h = state.finance.history.slice(-6);
-  if (!h.length) return 0;
-  const profit = h.reduce((s, x) => s + x.profit, 0) / h.length;
+  // Seuls les mois écoulés depuis ton retrait comptent (l'entreprise doit prouver qu'elle tourne sans toi),
+  // sur 12 mois maximum ; 30 % du bénéfice restent dans l'entreprise (réinvestissement, réserve).
+  const since = Math.floor((state.time.day - (state.stats.retiredDay ?? state.time.day)) / 30);
+  if (since < 2) return 0;
+  const h = state.finance.history.slice(-Math.min(12, since));
+  const profit = (h.reduce((s, x) => s + x.profit, 0) / h.length) * BUSINESS_PAYOUT;
   if (state.meta.legal === 'srl') {
     const pay = state.personal.draw;
     const annualProfit = Math.max(0, profit * 12);
@@ -67,7 +73,7 @@ export function monthEnd(state) {
     snap.netWorth = netWorth(state);
   }
   // Victoire : moyenne sur 3 mois ≥ objectif
-  if (state.status === 'playing' && last3.length === 3 && p.avg3 >= state.passiveTarget) {
+  if (state.status === 'playing' && last3.length === 3 && p.avg3 >= passiveTargetNow(state)) {
     state.status = 'won';
     state.endgame.wonDay = state.time.day;
     log(state, 'good', 'LIBERTÉ FINANCIÈRE ! Tes revenus passifs couvrent ton objectif.', true);

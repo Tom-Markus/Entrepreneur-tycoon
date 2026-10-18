@@ -171,6 +171,9 @@ function applyEffect(state, e, ctx, rng, src) {
     case 'flag':
       state.flags[e.key] = e.value === undefined ? true : e.value;
       break;
+    case 'flagYear':
+      state.flags[e.key] = Math.floor(state.time.day / 360);
+      break;
     case 'flagUntil':
       state.flags[e.key] = state.time.day + e.days;
       break;

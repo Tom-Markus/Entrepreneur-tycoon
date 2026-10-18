@@ -48,7 +48,7 @@ export const panel = {
     return `
     <section class="card-block">
       <h3>Revenu passif ${help('Revenu passif')}</h3>
-      <p>Moyenne 3 mois : <strong class="${p.total >= p.target ? 'good' : ''}">${eur(p.total, { decimals: false })}/mois</strong> sur un objectif de ${eur(p.target, { decimals: false })}/mois.</p>
+      <p>Moyenne 3 mois : <strong class="${p.total >= p.target ? 'good' : ''}">${eur(p.total, { decimals: false })}/mois</strong> sur un objectif de ${eur(p.target, { decimals: false })}/mois <span class="muted small">(${eur(state.passiveTarget, { decimals: false })} de 2026, indexés sur l'inflation)</span>.</p>
       <p>${bar(Math.max(0, p.total), p.target)} ${pct(Math.max(0, p.total) / Math.max(1, p.target))}</p>
       <table class="table"><tbody>${parts.map(([k, v]) => `<tr><td>${esc(PART_LABELS[k] || k)}</td><td class="num ${v < 0 ? 'bad' : ''}">${eur(v, { decimals: false })}/mois</td></tr>`).join('')}</tbody></table>
       <p class="small muted">${state.staff.founder.active ? `Ton entreprise ne compte pas encore : il faut ${manager ? 'te retirer de l’opérationnel (onglet Équipe)' : 'recruter un·e gérant·e puis te retirer de l’opérationnel'} ${help('Gérant')}.` : 'Ton entreprise tourne sans toi : son bénéfice net compte comme revenu passif.'} La bourse compte pour 4 %/an de sa valeur ${help('Règle des 4 %')}.</p>
@@ -97,7 +97,8 @@ export const panel = {
     const pc = el.querySelector('#passive-chart');
     if (pc) {
       const h = state.passive.history.slice(-36);
-      drawLines(pc, { labels: h.map(() => ''), series: [{ name: 'Revenu passif', color: '#a7f070', values: h }, { name: 'Objectif', color: '#ffcd75', values: h.map(() => state.passiveTarget), dashed: true }] });
+      const target = passiveIncome(state).target;
+      drawLines(pc, { labels: h.map(() => ''), series: [{ name: 'Revenu passif', color: '#a7f070', values: h }, { name: 'Objectif', color: '#ffcd75', values: h.map(() => target), dashed: true }] });
     }
     const mc = el.querySelector('#market-chart');
     if (mc) {

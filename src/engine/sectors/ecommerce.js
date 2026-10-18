@@ -11,6 +11,7 @@ import { productivity, countRole } from '../systems/staff.js';
 import { rateCustomer } from '../systems/company.js';
 import { priceFactor, reputationFactor } from '../demand.js';
 import { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } from './common.js';
+import { priceLevel } from '../systems/core.js';
 import { log } from '../log.js';
 import { clamp } from '../money.js';
 
@@ -50,7 +51,7 @@ export function priceIndex(state) {
   const s = state.sector;
   if (!s.listed.length) return 1;
   let t = 0;
-  for (const id of s.listed) t += s.prices[id] / P[id].ref;
+  for (const id of s.listed) t += s.prices[id] / (P[id].ref * priceLevel(state));
   return t / s.listed.length / (1 + upgradeEffect(state, 'priceTolerance'));
 }
 
@@ -64,8 +65,9 @@ export function marketValue(state) {
 
 export function stockValue(state) {
   let v = 0;
-  for (const p of D.products) v += (state.sector.stock[p.id] || 0) * p.cost;
-  for (const po of state.sector.pos) v += po.qty * P[po.id].cost;
+  const lvl = priceLevel(state);
+  for (const p of D.products) v += Math.round((state.sector.stock[p.id] || 0) * p.cost * lvl);
+  for (const po of state.sector.pos) v += Math.round(po.qty * P[po.id].cost * lvl);
   return v;
 }
 
@@ -103,14 +105,18 @@ export function funnel(state) {
   const season = D.seasonality[d.month] * blackFriday(state.time.day);
   const repeat = 1 + upgradeEffect(state, 'repeat');
   const organic = D.organicVisitors * diffOf(state).marketMult * m.share * upgradeEffect(state, 'organicMult') * m.eco * repeat;
-  const paid = state.company.marketing > 0 ? state.company.marketing / 30 / cpc(state) : 0;
+  // Plus on achète de clics, plus ils coûtent cher (rendements décroissants)
+  const raw = state.company.marketing > 0 ? state.company.marketing / 30 / cpc(state) : 0;
+  const paid = raw / (1 + raw / D.cpcSaturation);
   const mpShare = upgradeEffect(state, 'marketplace') > 0 ? 0.6 : 0;
   const visitors = (organic + paid) * (1 + mpShare);
+  // visiteurs « équivalents organiques » (les visiteurs payés convertissent moins bien)
+  const effective = (organic + paid * D.paidConversion) * (1 + mpShare);
   const mk = Math.min(2, countRole(state, 'marketeur'));
   const convBoost = 1 + upgradeEffect(state, 'conv') + D.roles.marketeur.conv * mk;
   const pf = priceFactor(priceIndex(state) * modMult(state, 'priceCut'), 1, D.elasticity);
   const conversion = D.baseConversion * pf * convBoost * reputationFactor(state.company.reputation) * season * m.ev;
-  return { m, organic, paid, visitors, conversion, season, pf, convBoost, mpShare };
+  return { m, organic, paid, visitors, effective, conversion, season, pf, convBoost, mpShare };
 }
 
 function productWeights(state) {
@@ -119,7 +125,7 @@ function productWeights(state) {
   return s.listed.map((id) => {
     const p = P[id];
     const seas = p.season && p.season[d.month] ? p.season[d.month] : 1;
-    return { id, w: p.weight * seas * priceFactor(s.prices[id], p.ref, D.elasticity) };
+    return { id, w: p.weight * seas * priceFactor(s.prices[id], p.ref * priceLevel(state), D.elasticity) };
   });
 }
 
@@ -134,7 +140,7 @@ function placeOrder(state, id, qty) {
   if (!q) return 0;
   const lead = Math.round(D.leadTime * modMult(state, 'delivery'));
   state.sector.pos.push({ id, qty: q, arrive: state.time.day + lead });
-  spend(state, Math.round(q * p.cost * modMult(state, 'unitCost')), p.vat, 'stock');
+  spend(state, Math.round(q * p.cost * priceLevel(state) * modMult(state, 'unitCost')), p.vat, 'stock');
   return q;
 }
 
@@ -168,7 +174,7 @@ export function daily(state, rng) {
     s.pos = s.pos.filter((x) => x.arrive > day);
   }
   const f = funnel(state);
-  const orders = rng.poisson(f.visitors * f.conversion);
+  const orders = rng.poisson(f.effective * f.conversion);
   const weights = productWeights(state);
   let sold = 0;
   let lostStock = 0;
@@ -189,7 +195,8 @@ export function daily(state, rng) {
     soldBy[pick.id] = (soldBy[pick.id] || 0) + 1;
     sold++;
     const p = P[pick.id];
-    const ttc = Math.round(s.prices[pick.id] * modMult(state, 'priceCut'));
+    // Une commande contient en moyenne plusieurs articles (le stock n'en suit qu'un, simplification)
+    const ttc = Math.round(s.prices[pick.id] * modMult(state, 'priceCut') * D.itemsPerOrder);
     vatBy[p.vat] = (vatBy[p.vat] || 0) + ttc;
   }
   // Encaissement (paiement à la commande)
@@ -225,7 +232,7 @@ export function daily(state, rng) {
   for (const [id, n] of Object.entries(soldBy)) {
     const p = P[id];
     for (let i = 0; i < n; i++) {
-      if (rng.chance(p.returns * retMult)) s.returnsQ.push({ day: day + D.returnDelay, id, ttc: s.prices[id], vat: p.vat });
+      if (rng.chance(p.returns * retMult)) s.returnsQ.push({ day: day + D.returnDelay, id, ttc: Math.round(s.prices[id] * D.itemsPerOrder), vat: p.vat });
     }
   }
   const dueReturns = s.returnsQ.filter((r) => r.day <= day);
@@ -302,7 +309,7 @@ export const actions = {
     const p = P[a.id];
     const v = Math.round(Number(a.value));
     if (!p || !Number.isFinite(v)) return { ok: false, message: 'Valeur invalide.' };
-    state.sector.prices[a.id] = clamp(v, Math.round(p.cost * 0.8), p.ref * 3);
+    state.sector.prices[a.id] = clamp(v, Math.round(p.cost * 0.8), Math.round(p.ref * 3 * priceLevel(state)));
     return { ok: true };
   },
   listProduct(state, a) {

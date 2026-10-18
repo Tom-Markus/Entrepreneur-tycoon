@@ -62,6 +62,8 @@ test('revenu passif : 4 % de la bourse, entreprise seulement sans le fondateur',
   s.staff.employees.push({ id: 1, name: 'G', role: 'gerant', skill: 70, trait: 'fiable', salary: 400_000, motivation: 70, hiredDay: 0, hireRank: 1, absentUntil: 0 });
   assert.equal(computePassive(s).parts.entreprise, 0, 'le fondateur travaille encore');
   assert.ok(applyAction(s, { type: 'retire' }).ok);
+  assert.equal(computePassive(s).parts.entreprise, 0, 'il faut prouver que l’entreprise tourne sans toi');
+  s.time.day += 90;
   assert.ok(computePassive(s).parts.entreprise > 0);
 });
 

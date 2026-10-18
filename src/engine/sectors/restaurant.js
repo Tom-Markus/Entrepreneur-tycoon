@@ -10,6 +10,7 @@ import { modMult } from '../modifiers.js';
 import { productivity, qualityOf } from '../systems/staff.js';
 import { rateCustomer, changeReputation } from '../systems/company.js';
 import { htFromTtc, diffOf, playerMarket, baseWhy, prodMod } from './common.js';
+import { priceLevel } from '../systems/core.js';
 import { log } from '../log.js';
 import { clamp } from '../money.js';
 
@@ -41,15 +42,15 @@ function ingredient(state) {
 }
 
 export function unitCost(state) {
-  return Math.round(ingredient(state).cost * modMult(state, 'unitCost'));
+  return Math.round(ingredient(state).cost * priceLevel(state) * modMult(state, 'unitCost'));
 }
 
-export function refPrice() {
-  return D.refPrice;
+export function refPrice(state) {
+  return Math.round(D.refPrice * priceLevel(state));
 }
 
 export function priceIndex(state) {
-  return state.sector.price / D.refPrice;
+  return state.sector.price / refPrice(state);
 }
 
 function marketMult(state) {
@@ -57,7 +58,7 @@ function marketMult(state) {
 }
 
 export function marketValue(state) {
-  return D.marketClients * marketMult(state) * diffOf(state).marketMult * 30 * htFromTtc(state, D.refPrice, blendedVat());
+  return D.marketClients * marketMult(state) * diffOf(state).marketMult * 30 * htFromTtc(state, refPrice(state), blendedVat());
 }
 
 export function stockQty(state) {
@@ -65,7 +66,7 @@ export function stockQty(state) {
 }
 
 export function stockValue(state) {
-  return stockQty(state) * ingredient(state).cost;
+  return stockQty(state) * unitCost(state);
 }
 
 export function quality(state) {
@@ -84,28 +85,24 @@ export function quality(state) {
   return clamp(q * modMult(state, 'quality'), 0.3, 2);
 }
 
-/** Capacités de cuisine et de comptoir (clients/jour). */
+/** Capacité de service (clients/jour) = min(personnel, équipement). */
 export function capacities(state) {
   const f = state.staff.founder;
-  let kitchen = f.active ? D.founderKitchen * (f.energy / 100 * 0.3 + 0.7) : 0;
-  let counter = f.active ? D.founderCounter * (f.energy / 100 * 0.3 + 0.7) : 0;
+  let staff = f.active ? D.founderService * (f.energy / 100 * 0.3 + 0.7) : 0;
   for (const e of state.staff.employees) {
     const r = D.roles[e.role];
-    if (!r) continue;
-    const p = productivity(state, e);
-    if (r.kitchen) kitchen += r.kitchen * p;
-    if (r.counter) counter += r.counter * p;
+    if (r && r.service) staff += r.service * productivity(state, e);
   }
-  kitchen = (kitchen + upgradeEffect(state, 'kitchen')) * upgradeEffect(state, 'kitchenMult');
-  counter = (counter + upgradeEffect(state, 'counter')) * upgradeEffect(state, 'counterMult');
+  staff *= upgradeEffect(state, 'serviceMult');
+  const equipment = (D.equipment + upgradeEffect(state, 'equipment')) * upgradeEffect(state, 'equipmentMult');
   const m = modMult(state, 'capacity') * prodMod(state);
-  return { kitchen: kitchen * m, counter: counter * m, total: Math.min(kitchen, counter) * m };
+  return { staff: staff * m, equipment: equipment * m, total: Math.min(staff, equipment) * m };
 }
 
 /** Clients attendus (λ) pour un jour donné, avec le détail des facteurs. */
 export function expectedClients(state, day = state.time.day, weatherOverride = null) {
   const d = dateOf(day);
-  const m = playerMarket(state, D, state.sector.price, D.refPrice, 1 + upgradeEffect(state, 'attraction'));
+  const m = playerMarket(state, D, state.sector.price, refPrice(state), 1 + upgradeEffect(state, 'attraction'));
   const wName = weatherOverride || state.world.weather;
   let weather = D.weather[wName] ?? 1;
   if (wName === 'soleil') weather += upgradeEffect(state, 'sunBonus');
@@ -169,7 +166,7 @@ export function daily(state, rng) {
   }
   // Satisfaction
   if (demand > 0) {
-    const valueForMoney = D.refPrice / s.price;
+    const valueForMoney = refPrice(state) / s.price;
     let score = 50 + 70 * (state.company.quality - 0.85) + 25 * (valueForMoney - 1);
     score -= 45 * (lostQueue / demand) + 30 * (lostStock / demand);
     rateCustomer(state, clamp(score, 0, 100), 0.03);
@@ -210,7 +207,7 @@ export function daily(state, rng) {
   state.staff.lastWorkload = capacity > 0 ? demand / capacity : 0;
   state.company.demandPerDay = ex.lambda;
   state.company.why = [
-    ...baseWhy(ex.m, `Ticket moyen ${(s.price / 100).toFixed(2).replace('.', ',')} € (marché 11,50 €).`),
+    ...baseWhy(ex.m, `Ticket moyen ${(s.price / 100).toFixed(2).replace('.', ',')} € (marché ${(refPrice(state) / 100).toFixed(2).replace('.', ',')} €).`),
     { label: 'Jour de la semaine', value: ex.weekday, hint: 'Vendredi et samedi sont les meilleurs jours.' },
     { label: 'Météo', value: ex.weather, hint: 'Soleil + terrasse = foule ; la pluie fait fuir.' },
     { label: 'Saison', value: ex.season, hint: 'L’été est la haute saison.' },

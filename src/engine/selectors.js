@@ -50,11 +50,16 @@ export function lastMonths(state, n = 12) {
   return state.finance.history.slice(-n);
 }
 
+/** Objectif de revenu passif en euros courants (indexé sur l'inflation depuis 2026). */
+export function passiveTargetNow(state) {
+  return Math.round((state.passiveTarget || 0) * ((state.world && state.world.priceLevel) || 1));
+}
+
 /**
  * Revenu passif mensuel net (voir docs/DESIGN.md § 11.2). Le détail est
  * calculé chaque fin de mois par passive.js ; on lit le dernier résultat.
  */
 export function passiveIncome(state) {
   const p = state.passive || { total: 0, avg3: 0, parts: {} };
-  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: state.passiveTarget || 0 };
+  return { total: p.avg3 || 0, last: p.total || 0, parts: p.parts || {}, target: passiveTargetNow(state) };
 }

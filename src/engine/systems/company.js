@@ -7,6 +7,7 @@ import { spend, receive, initLedger } from '../ledger.js';
 import { initUpgrades, payUpgradeMonthly, upgradeEffect } from '../upgrades.js';
 import { expireModifiers, modAdd } from '../modifiers.js';
 import { clamp } from '../money.js';
+import { priceLevel } from './core.js';
 
 export function init(state, opts, diff) {
   const sd = sectorData(state);
@@ -39,6 +40,10 @@ export function init(state, opts, diff) {
   const creation = FISCALITE.creation[state.meta.legal] || 0;
   spend(state, creation, state.meta.legal === 'srl' ? 0.21 : 0, 'autres');
   if (sd.startCostExtra) spend(state, sd.startCostExtra, 0.21, 'investissement', { capex: true, label: 'Équipement de départ' });
+  // Si l'apport ne couvre pas l'équipement + une petite réserve, la banque finance la différence
+  // (prêt de démarrage, accordé par loans.init).
+  const safety = 300_000;
+  if (state.cash < safety) state.flags.starterLoan = Math.ceil((safety - state.cash) / 100_000) * 100_000;
   state.finance.franchise = !!opts.vatFranchise;
   state.stats.startCapital = capital;
 }
@@ -74,11 +79,12 @@ export function changeReputation(state, delta) {
 export function monthlyFixedCosts(state) {
   const sd = sectorData(state);
   const heads = state.staff.employees.length + 1;
+  const lvl = priceLevel(state);
   const list = [];
   for (const f of sd.fixedCosts) {
-    list.push({ label: f.label, amount: f.amount + (f.perHead || 0) * heads, vat: f.vat, cat: f.cat });
+    list.push({ label: f.label, amount: Math.round((f.amount + (f.perHead || 0) * heads) * lvl), vat: f.vat, cat: f.cat });
   }
-  list.push({ label: 'Comptable', amount: FISCALITE.comptable[state.meta.legal], vat: 0.21, cat: 'comptable' });
+  list.push({ label: 'Comptable', amount: Math.round(FISCALITE.comptable[state.meta.legal] * lvl), vat: 0.21, cat: 'comptable' });
   return list;
 }
 

@@ -9,6 +9,7 @@ import { clamp, mul } from '../money.js';
 import { modAdd } from '../modifiers.js';
 import { upgradeEffect } from '../upgrades.js';
 import { DAYS_PER_MONTH } from '../calendar.js';
+import { priceLevel } from './core.js';
 
 const EMP = FISCALITE.employeur;
 export const EMPLOYER_FACTOR = 1 + EMP.onssRate + EMP.autresCharges;
@@ -45,8 +46,9 @@ export function makeCandidate(state, rng, roleId, opts = {}) {
   const [lo, hi] = role.skillRange;
   const skill = clamp(Math.round(opts.skill ?? rng.range(lo, hi)), 1, 100);
   const trait = opts.trait || rng.pick(Object.keys(TRAITS));
-  const raw = role.baseSalary * (0.75 + (skill / 100) * 0.55) * rng.range(0.92, 1.1) * (opts.salaryMult || 1);
-  const salary = Math.max(EMP.rmmmg, Math.round(raw / 1000) * 1000);
+  const lvl = priceLevel(state);
+  const raw = role.baseSalary * lvl * (0.75 + (skill / 100) * 0.55) * rng.range(0.92, 1.1) * (opts.salaryMult || 1);
+  const salary = Math.max(Math.round(EMP.rmmmg * lvl), Math.round(raw / 1000) * 1000);
   state.staff.seq += 1;
   return {
     id: state.staff.seq,
@@ -83,7 +85,8 @@ export function seatsAvailable(state) {
 /** Salaire de marché pour un rôle et une compétence (référence de motivation). */
 export function marketSalary(state, roleId, skill) {
   const r = roles(state)[roleId];
-  return Math.max(EMP.rmmmg, r.baseSalary * (0.75 + (skill / 100) * 0.55));
+  const lvl = priceLevel(state);
+  return Math.max(EMP.rmmmg * lvl, r.baseSalary * lvl * (0.75 + (skill / 100) * 0.55));
 }
 
 /** Coût employeur mensuel d'un employé (avant réductions). */
@@ -108,12 +111,22 @@ export function monthlyPayroll(state) {
   return s;
 }
 
+/**
+ * Coordination : au-delà de 4 personnes, chaque employé de plus coûte un peu
+ * d'efficacité à tous (réunions, communication). Un gérant compense en partie.
+ */
+export function teamOverhead(state) {
+  const n = state.staff.employees.length;
+  const base = Math.max(0.72, 1 - 0.012 * Math.max(0, n - 4));
+  return hasManager(state) ? Math.min(1, base + 0.04) : base;
+}
+
 /** Productivité d'un employé (≈ 1 pour compétence 50, motivation 70). */
 export function productivity(state, e) {
   if (state.time.day < (e.absentUntil || 0)) return 0;
   const t = TRAITS[e.trait] || TRAITS.fiable;
   const mot = 0.7 + 0.3 * (e.motivation / 100);
-  return (0.5 + e.skill / 100) * mot * t.prod;
+  return (0.5 + e.skill / 100) * mot * t.prod * teamOverhead(state);
 }
 
 export function qualityOf(e) {
@@ -259,10 +272,16 @@ export function daily(state, rng) {
 
 export function monthEnd(state, rng) {
   const st = state.staff;
+  // Le fondateur apprend son métier en le pratiquant.
+  if (st.founder.active) st.founder.skill = Math.min(88, st.founder.skill + 0.25);
   // Salaires (coût employeur), réduction premiers engagements déduite.
+  // Les rôles « flex » (jobistes payés à l'heure) coûtent selon l'occupation.
+  const R = roles(state);
+  const occupancy = clamp(state.company.capacityUse || 0, 0.3, 1);
   for (const e of st.employees) {
     const onss = mul(e.salary, EMP.onssRate);
-    const cost = employerCost(e) - Math.min(onss, hireReduction(state, e));
+    let cost = employerCost(e) - Math.min(onss, hireReduction(state, e));
+    if (R[e.role] && R[e.role].flex) cost = Math.round(cost * occupancy);
     pay(state, cost, 'salaires');
   }
   // Nouveaux candidats spontanés

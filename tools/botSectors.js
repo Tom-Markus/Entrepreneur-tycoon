@@ -6,9 +6,7 @@ import * as restaurant from '../src/engine/sectors/restaurant.js';
 import * as ecommerce from '../src/engine/sectors/ecommerce.js';
 import * as artisan from '../src/engine/sectors/artisan.js';
 import * as soutien from '../src/engine/sectors/soutien.js';
-import { RESTAURANT } from '../src/data/sectors/restaurant.js';
 import { ECOMMERCE } from '../src/data/sectors/ecommerce.js';
-import { SOUTIEN } from '../src/data/sectors/soutien.js';
 import { countRole } from '../src/engine/systems/staff.js';
 
 const sector = (state, name, extra) => applyAction(state, { type: 'sector', name, ...extra });
@@ -27,6 +25,7 @@ export const SECTOR_BOTS = {
       let rate = s.rate;
       if (months > 1.3) rate *= 1 + P.priceStep;
       else if (months < 0.4) rate *= 1 - P.priceStep;
+      rate = Math.max(rate, agence.refPrice(state) * 0.9); // jamais sous 90 % du prix du marché (indexé)
       applyAction(state, { type: 'sector', name: 'setRate', value: Math.round(rate / 100) * 100 });
       if (s.policy !== 'capacite') applyAction(state, { type: 'sector', name: 'setPolicy', value: 'capacite' });
     },
@@ -34,7 +33,7 @@ export const SECTOR_BOTS = {
       const cap = Math.max(1, agence.hoursPerDay(state));
       const months = agence.backlogHours(state) / (cap * 21);
       const devs = countRole(state, 'developpeur') + countRole(state, 'designer');
-      if (months > P.hireBacklog) {
+      if (months > P.hireBacklog + 0.4 && state.sector.leads.length > 0) {
         if (devs >= 4 && countRole(state, 'chef_projet') === 0) return 'chef_projet';
         if (state.company.quality < 0.95 && countRole(state, 'designer') < 2) return 'designer';
         return 'developpeur';
@@ -49,7 +48,7 @@ export const SECTOR_BOTS = {
       return avgProfit(state, 6) > 900_000 && state.staff.employees.length >= 3;
     },
     readyToRetire(state) {
-      return state.staff.employees.length >= 4;
+      return state.staff.employees.length >= 5;
     },
   },
 
@@ -62,7 +61,8 @@ export const SECTOR_BOTS = {
       let price = s.price;
       if (avg > caps.total * 1.15) price *= 1 + P.priceStep;
       else if (avg < caps.total * 0.5) price *= 1 - P.priceStep / 2;
-      sector(state, 'setPrice', { value: Math.round(Math.min(price, RESTAURANT.refPrice * 1.35) / 10) * 10 });
+      price = Math.max(price, restaurant.refPrice(state) * 0.95); // suivre l'inflation
+      sector(state, 'setPrice', { value: Math.round(Math.min(price, restaurant.refPrice(state) * 1.35) / 10) * 10 });
       if (s.hygiene < 70) sector(state, 'setCleaning', { value: s.cleaning + 5_000 });
       else if (s.hygiene > 92 && s.cleaning > 10_000) sector(state, 'setCleaning', { value: s.cleaning - 2_500 });
       s._lastLost = lost;
@@ -70,7 +70,7 @@ export const SECTOR_BOTS = {
     wantsHire(state, P) {
       const caps = restaurant.capacities(state);
       const t = state.sector.recent.reduce((a, b) => a + b, 0) / Math.max(1, state.sector.recent.length);
-      if (t > caps.total * (0.85 + (P.hireBacklog - 1) * 0.5)) return caps.kitchen < caps.counter ? 'cuisinier' : 'vendeur';
+      if (t > caps.total * (0.85 + (P.hireBacklog - 1) * 0.5) && caps.staff < caps.equipment) return countRole(state, 'cuisinier') < countRole(state, 'vendeur') ? 'cuisinier' : 'vendeur';
       if (state.sector.hygiene < 55 && countRole(state, 'plongeur') === 0) return 'plongeur';
       return null;
     },
@@ -81,7 +81,7 @@ export const SECTOR_BOTS = {
       return avgProfit(state, 6) > 700_000 && state.staff.employees.length >= 3;
     },
     readyToRetire(state) {
-      return state.staff.employees.length >= 4;
+      return state.staff.employees.length >= 5;
     },
   },
 
@@ -95,6 +95,8 @@ export const SECTOR_BOTS = {
         if (!s.listed.includes(p.id)) sector(state, 'listProduct', { id: p.id });
       }
       if (!s.reorder) sector(state, 'setReorder', { value: true });
+      const lvl = state.world.priceLevel || 1;
+      for (const p of ECOMMERCE.products) if (s.prices[p.id] < p.ref * lvl * 0.95) sector(state, 'setProductPrice', { id: p.id, value: Math.round(p.ref * lvl) });
     },
     marketing(state, P) {
       // La publicité n'est rentable que si le coût d'acquisition reste sous la marge
@@ -129,6 +131,7 @@ export const SECTOR_BOTS = {
       let rate = s.rate;
       if (months > 1.2) rate *= 1 + P.priceStep;
       else if (months < 0.3) rate *= 1 - P.priceStep;
+      rate = Math.max(rate, artisan.refPrice(state) * 0.9);
       sector(state, 'setRate', { value: Math.round(rate / 100) * 100 });
     },
     wantsHire(state, P) {
@@ -149,7 +152,7 @@ export const SECTOR_BOTS = {
       return avgProfit(state, 6) > 900_000 && state.staff.employees.length >= 3;
     },
     readyToRetire(state) {
-      return state.staff.employees.length >= 4;
+      return state.staff.employees.length >= 5;
     },
   },
 
@@ -157,9 +160,12 @@ export const SECTOR_BOTS = {
     monthly(state, P) {
       const s = state.sector;
       const cap = soutien.capacity(state);
-      if (s.students > cap.total * 0.95) sector(state, 'setPrice', { value: Math.round(Math.min(s.price * (1 + P.priceStep), SOUTIEN.refPrice * 1.5) / 100) * 100 });
-      else if (s.students < cap.total * 0.4 && s.price > SOUTIEN.refPrice * 0.8) sector(state, 'setPrice', { value: Math.round((s.price * (1 - P.priceStep / 2)) / 100) * 100 });
-      const g = soutien.expectedSuccess(state) < 0.7 ? s.groupSize - 1 : s.groupSize < 7 ? s.groupSize + 1 : s.groupSize;
+      // Viser un taux de remplissage de 80-95 % (hors creux d'été)
+      const summer = [6, 7].includes(Math.floor((state.time.day % 360) / 30));
+      if (s.price < soutien.refPrice(state) * 0.9) sector(state, 'setPrice', { value: Math.round(soutien.refPrice(state) / 100) * 100 });
+      if (!summer && s.students > cap.total * 0.95) sector(state, 'setPrice', { value: Math.round(Math.min(s.price * (1 + P.priceStep), soutien.refPrice(state) * 1.4) / 100) * 100 });
+      else if (!summer && s.students < cap.total * 0.75 && s.price > soutien.refPrice(state) * 0.85) sector(state, 'setPrice', { value: Math.round((s.price * (1 - P.priceStep)) / 100) * 100 });
+      const g = soutien.expectedSuccess(state) < 0.6 ? Math.max(5, s.groupSize - 1) : s.groupSize < 7 ? s.groupSize + 1 : s.groupSize;
       sector(state, 'setGroupSize', { value: g });
     },
     wantsHire(state, P) {
@@ -175,7 +181,7 @@ export const SECTOR_BOTS = {
       return avgProfit(state, 6) > 600_000 && state.staff.employees.length >= 3;
     },
     readyToRetire(state) {
-      return state.staff.employees.length >= 4;
+      return state.staff.employees.length >= 5;
     },
   },
 };

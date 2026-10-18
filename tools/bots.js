@@ -9,8 +9,9 @@
 
 import { applyAction } from '../src/engine/index.js';
 import { upgradeList, canBuyUpgrade } from '../src/engine/upgrades.js';
-import { seatsAvailable, hasManager, monthlyPayroll, countRole } from '../src/engine/systems/staff.js';
+import { roles, seatsAvailable, hasManager, monthlyPayroll, countRole } from '../src/engine/systems/staff.js';
 import { taxLiabilities } from '../src/engine/selectors.js';
+import { estimateYearTax } from '../src/engine/systems/tax.js';
 import { INVESTMENTS } from '../src/data/investments.js';
 import { propertyQuote } from '../src/engine/systems/investments.js';
 import { dateOf } from '../src/engine/calendar.js';
@@ -20,18 +21,24 @@ export const STRATEGIES = ['passive', 'prudente', 'agressive', 'optimale'];
 const PROFILE = {
   prudente: { reserveMonths: 6, upgradeCashMult: 3, marketingShare: 0.03, hireBacklog: 1.6, priceStep: 0.03, loans: false, investShare: 0.5 },
   agressive: { reserveMonths: 1, upgradeCashMult: 1.2, marketingShare: 0.12, hireBacklog: 0.9, priceStep: 0.06, loans: true, investShare: 0.8 },
-  optimale: { reserveMonths: 3, upgradeCashMult: 1.8, marketingShare: 0.06, hireBacklog: 1.15, priceStep: 0.04, loans: true, investShare: 0.85 },
+  optimale: { reserveMonths: 2, upgradeCashMult: 1.8, marketingShare: 0.06, hireBacklog: 1.15, priceStep: 0.04, loans: true, investShare: 0.85 },
 };
 
 function act(state, a) {
   return applyAction(state, a);
 }
 
+/** Coût employeur approximatif d'un rôle. */
+function roleCost(state, role) {
+  const r = roles(state)[role];
+  return r ? r.baseSalary * 1.35 : 400_000;
+}
+
 /** Charges mensuelles approximatives (pour les réserves). */
 function monthlyBurn(state) {
   const h = state.finance.history.slice(-3);
   if (!h.length) return 300_000;
-  return h.reduce((s, x) => s + x.outflow, 0) / h.length;
+  return h.reduce((s, x) => s + x.expenses, 0) / h.length;
 }
 
 function avgProfit(state, n = 3) {
@@ -58,7 +65,19 @@ export function monthly(state, strategy, adapter) {
   if (strategy === 'passive' || state.status === 'bankrupt') return;
   const P = PROFILE[strategy];
   const burn = monthlyBurn(state);
-  const reserve = burn * P.reserveMonths + taxLiabilities(state);
+  // Réserve = charges de N mois + dettes fiscales connues + impôt estimé de l'année en cours
+  const est = estimateYearTax(state);
+  const reserve = burn * P.reserveMonths + taxLiabilities(state) + est.company;
+
+  // 0) Sauvetage : si l'entreprise est dans le rouge, remettre de l'argent personnel (vendre des placements si besoin)
+  if (state.cash < -state.finance.overdraftLimit * 0.5) {
+    const need = Math.round(-state.cash + burn);
+    const inv = state.investments;
+    if (state.personal.cash < need && inv.etf.value > 0) act(state, { type: 'sellAsset', kind: 'etf', amount: Math.min(inv.etf.value, need - state.personal.cash + 50_000) });
+    if (state.personal.cash < need && inv.savings > 0) act(state, { type: 'withdraw', amount: Math.min(inv.savings, need - state.personal.cash) });
+    const amt = Math.min(need, Math.max(0, state.personal.cash - 50_000));
+    if (amt >= 10_000) act(state, { type: 'apport', value: amt });
+  }
 
   // 1) Prix et capacité (propres au secteur)
   if (adapter && adapter.monthly) adapter.monthly(state, P, strategy);
@@ -71,7 +90,7 @@ export function monthly(state, strategy, adapter) {
   // 3) Recrutement
   if (adapter && adapter.wantsHire) {
     const role = adapter.wantsHire(state, P);
-    if (role && seatsAvailable(state) > 0 && state.cash > reserve + monthlyPayroll(state)) {
+    if (role && seatsAvailable(state) > 0 && state.cash > reserve + roleCost(state, role) * 2) {
       let cand = state.staff.candidates.filter((c) => c.role === role).sort((a, b) => b.skill - a.skill)[0];
       if (!cand && state.cash > reserve * 1.2) {
         act(state, { type: 'postJobAd', role });
@@ -88,15 +107,20 @@ export function monthly(state, strategy, adapter) {
     if (state.cash > reserve + u.cost * 1.21 * P.upgradeCashMult) act(state, { type: 'buyUpgrade', id: u.id });
   }
 
-  // 5) Licencier si l'équipe coûte plus qu'elle ne rapporte durablement
-  if (avgProfit(state, 3) < -monthlyPayroll(state) * 0.3 && state.staff.employees.length > 0 && state.cash < reserve) {
+  // 5) Licencier si l'équipe coûte durablement plus qu'elle ne rapporte (au plus une fois par trimestre)
+  const lastFire = state.stats.botLastFire ?? -999;
+  if (avgProfit(state, 6) < -monthlyPayroll(state) * 0.2 && state.staff.employees.length > 1 && state.cash < reserve && state.time.day - lastFire > 90) {
+    state.stats.botLastFire = state.time.day;
     const worst = [...state.staff.employees].filter((e) => e.role !== 'gerant').sort((a, b) => a.skill - b.skill)[0];
     if (worst) act(state, { type: 'fire', id: worst.id });
   }
 
   // 6) Rémunération du dirigeant : suit le bénéfice
+  // Après impôts et cotisations, ≈ 55 % du bénéfice reste disponible : on n'en prélève qu'une partie,
+  // et on réduit si la trésorerie ne couvre pas la réserve.
   const profit = avgProfit(state, 6);
-  const draw = Math.max(170_000, Math.min(profit * 0.55, 900_000));
+  let draw = Math.max(170_000, Math.min(profit * 0.45, 900_000));
+  if (state.cash < reserve) draw = Math.min(draw, 170_000);
   act(state, { type: 'setDraw', value: Math.round(draw / 1000) * 1000 });
 
   // 7) Gérant puis retrait de l'opérationnel quand l'entreprise est solide
@@ -108,7 +132,11 @@ export function monthly(state, strategy, adapter) {
     }
     if (g && g.skill >= 40) act(state, { type: 'hire', id: g.id });
   }
-  if (hasManager(state) && state.staff.founder.active && adapter && adapter.readyToRetire && adapter.readyToRetire(state)) act(state, { type: 'retire' });
+  // Se retirer seulement si le bénéfice couvre largement le coût du gérant et l'équipe est étoffée
+  const managerCost = state.staff.employees.filter((e) => e.role === 'gerant').reduce((s, e) => s + e.salary * 1.35, 0);
+  if (hasManager(state) && state.staff.founder.active && adapter && adapter.readyToRetire && adapter.readyToRetire(state) && avgProfit(state, 6) > managerCost * 1.5) act(state, { type: 'retire' });
+  // Revenir aux commandes si l'entreprise perd de l'argent sans toi
+  if (!state.staff.founder.active && avgProfit(state, 4) < 0 && seatsAvailable(state) > 0) act(state, { type: 'unretire' });
 
   // 8) Sortir l'argent de la société (SRL : dividendes) puis placer l'excédent personnel
   if (state.meta.legal === 'srl' && dateOf(state.time.day).yearIdx >= 2 && state.tax.reserves > 0) {

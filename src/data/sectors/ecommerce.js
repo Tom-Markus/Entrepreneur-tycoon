@@ -18,12 +18,15 @@ export const ECOMMERCE = {
 
   elasticity: 2.0,
   marketingRef: 100_000, // budget pub mensuel de référence
-  organicVisitors: 650, // visiteurs organiques/jour sur le marché (partagés)
-  baseConversion: 0.024,
-  cpc: 45, // coût par clic de base : 0,45 €
+  organicVisitors: 1_000, // visiteurs organiques/jour sur le marché (partagés)
+  baseConversion: 0.03,
+  cpc: 32, // coût par clic de base : 0,32 €
+  cpcSaturation: 900, // au-delà de ≈ 900 clics/jour, les enchères coûtent de plus en plus cher
+  paidConversion: 0.7, // un visiteur payé achète moins qu'un visiteur organique
   cpcSeason: [0.9, 0.85, 0.9, 0.95, 1, 1, 0.95, 0.95, 1, 1.05, 1.45, 1.3],
   seasonality: [1.1, 0.8, 0.9, 0.95, 1, 0.95, 0.9, 0.9, 1, 1.05, 1.5, 1.6],
   blackFriday: { month: 10, from: 23, to: 28, mult: 2.4 },
+  itemsPerOrder: 1.35, // articles par commande en moyenne (panier)
   packing: 80, // emballage par commande
   paymentPct: 0.014,
   paymentFixed: 25,
