@@ -76,6 +76,15 @@ export class GameScreen {
     this.root.addEventListener('click', this._onClick);
     this.root.addEventListener('change', this._onChange);
     this.root.addEventListener('input', this._onInput);
+    this.root.querySelector('.tabs').addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      const i = PANELS.findIndex((p) => p.id === this.tab);
+      const n = PANELS.length;
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + n) % n;
+      this.selectTab(PANELS[j].id);
+      $(`#tab-${PANELS[j].id}`).focus();
+      e.preventDefault();
+    });
     this.selectTab(this.tab);
     this.refresh(true);
   }
@@ -204,6 +213,7 @@ export class GameScreen {
       if (b) {
         b.classList.toggle('active', p.id === id);
         b.setAttribute('aria-selected', p.id === id ? 'true' : 'false');
+        b.tabIndex = p.id === id ? 0 : -1;
       }
     }
     this.panelHtml = '';

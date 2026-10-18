@@ -2575,7 +2575,7 @@ function daily(state, rng) {
   state.company.bottleneck =
     backlog > cap * WORKDAYS_PER_MONTH * 1.2
       ? 'capacite'
-      : s.leads.length > 0 && affordable === 0
+      : s.leads.length >= 2 && affordable === 0 && s.rate > refPrice(state)
         ? 'prix'
         : lr.lambda < 0.15
           ? 'demande'
@@ -8387,6 +8387,11 @@ const restaurant = {
     }
     const t0 = state.sector.today;
     if (t0 && t0.served > 0) drawSprite(ctx, 'cone', 96, FY + 2);
+    // file d'attente quand des clients repartent faute de capacité
+    if (t0 && t0.lostQueue > 0) {
+      const n = Math.min(6, 1 + Math.floor(t0.lostQueue / 5));
+      for (let i = 0; i < n; i++) drawSprite(ctx, 'person0', 160 - i * 9, FY + 44, look(`q${i}`));
+    }
   },
   target(state, i) {
     return { x: 76 + (i % 6) * 9, y: FY + 32 + (i % 2) * 6 };
@@ -10638,6 +10643,15 @@ class GameScreen {
     this.root.addEventListener('click', this._onClick);
     this.root.addEventListener('change', this._onChange);
     this.root.addEventListener('input', this._onInput);
+    this.root.querySelector('.tabs').addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      const i = PANELS.findIndex((p) => p.id === this.tab);
+      const n = PANELS.length;
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + n) % n;
+      this.selectTab(PANELS[j].id);
+      $(`#tab-${PANELS[j].id}`).focus();
+      e.preventDefault();
+    });
     this.selectTab(this.tab);
     this.refresh(true);
   }
@@ -10766,6 +10780,7 @@ class GameScreen {
       if (b) {
         b.classList.toggle('active', p.id === id);
         b.setAttribute('aria-selected', p.id === id ? 'true' : 'false');
+        b.tabIndex = p.id === id ? 0 : -1;
       }
     }
     this.panelHtml = '';

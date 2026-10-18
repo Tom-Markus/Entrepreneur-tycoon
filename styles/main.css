@@ -265,3 +265,7 @@ details summary { cursor: pointer; }
 .ach.ok { background: #1e3b3a; box-shadow: inset 3px 0 0 var(--good); }
 .ach.locked { opacity: 0.6; }
 .ach-icon { font-size: 22px; line-height: 1; }
+@media (max-width: 560px) {
+  .topbar { position: static; }
+  .tb-speed .btn-speed { min-width: 34px; }
+}

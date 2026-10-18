@@ -333,7 +333,7 @@ export function daily(state, rng) {
   state.company.bottleneck =
     backlog > cap * WORKDAYS_PER_MONTH * 1.2
       ? 'capacite'
-      : s.leads.length > 0 && affordable === 0
+      : s.leads.length >= 2 && affordable === 0 && s.rate > refPrice(state)
         ? 'prix'
         : lr.lambda < 0.15
           ? 'demande'

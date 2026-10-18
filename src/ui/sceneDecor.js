@@ -144,6 +144,11 @@ const restaurant = {
     }
     const t0 = state.sector.today;
     if (t0 && t0.served > 0) drawSprite(ctx, 'cone', 96, FY + 2);
+    // file d'attente quand des clients repartent faute de capacité
+    if (t0 && t0.lostQueue > 0) {
+      const n = Math.min(6, 1 + Math.floor(t0.lostQueue / 5));
+      for (let i = 0; i < n; i++) drawSprite(ctx, 'person0', 160 - i * 9, FY + 44, look(`q${i}`));
+    }
   },
   target(state, i) {
     return { x: 76 + (i % 6) * 9, y: FY + 32 + (i % 2) * 6 };
