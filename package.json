@@ -1,0 +1,14 @@
+{
+  "name": "entrepreneur-tycoon",
+  "version": "1.0.0",
+  "description": "Jeu de gestion d'entreprise belge en pixel art, jouable dans le navigateur.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "simulate": "node tools/simulate.js",
+    "bundle": "node tools/bundle.js",
+    "serve": "npx --yes http-server -c-1 -p 8080 ."
+  },
+  "license": "MIT"
+}
