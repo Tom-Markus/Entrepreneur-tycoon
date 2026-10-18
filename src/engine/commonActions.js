@@ -5,7 +5,10 @@ import { registerActions } from './actions.js';
 import { sectorModule } from './sectors/index.js';
 import { buyUpgrade } from './upgrades.js';
 import * as staff from './systems/staff.js';
-import { personalOut, receive } from './ledger.js';
+import { personalOut, personalIn, receive, pay } from './ledger.js';
+import * as loans from './systems/loans.js';
+import { dividendRate } from './taxmath.js';
+import { dateOf } from './calendar.js';
 import { clamp } from './money.js';
 import { log } from './log.js';
 
@@ -68,6 +71,53 @@ registerActions({
     state.staff.founder.active = false;
     state.stats.retiredDay = state.time.day;
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
+    return { ok: true };
+  },
+  requestLoan(state, a) {
+    return loans.requestLoan(state, Number(a.amount), Number(a.months));
+  },
+  repayLoan(state, a) {
+    return loans.repayLoan(state, a.id);
+  },
+  seekInvestor(state, a, rng) {
+    if (state.offers.investor) return { ok: false, message: 'Une offre est déjà sur la table.' };
+    if ((state.stats.lastInvestorSearch ?? -999) > state.time.day - 90) return { ok: false, message: 'Les investisseurs ne te recevront pas avant 3 mois.' };
+    state.stats.lastInvestorSearch = state.time.day;
+    return loans.makeInvestorOffer(state, rng);
+  },
+  acceptInvestor(state) {
+    return loans.acceptInvestor(state);
+  },
+  declineInvestor(state) {
+    state.offers.investor = null;
+    return { ok: true };
+  },
+  /** Base annuelle choisie pour les cotisations sociales provisoires (0 = automatique). */
+  setSocialBase(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v) || v < 0) return { ok: false, message: 'Valeur invalide.' };
+    state.tax.social.chosenBase = Math.min(v, 50_000_000);
+    return { ok: true };
+  },
+  /** Dividende brut décidé par l'assemblée générale (SRL). */
+  payDividend(state, a) {
+    if (state.meta.legal !== 'srl') return { ok: false, message: 'Seule une société verse des dividendes.' };
+    const amount = Math.round(Number(a.amount));
+    if (!(amount >= 10_000)) return { ok: false, message: 'Montant minimum : 100 €.' };
+    if (amount > state.tax.reserves) return { ok: false, message: 'Pas assez de bénéfices reportés (réserves) : on ne distribue que des bénéfices déjà taxés.' };
+    if (amount > state.cash) return { ok: false, message: 'Trésorerie insuffisante (test de liquidité).' };
+    const rate = dividendRate(dateOf(state.time.day).yearIdx);
+    pay(state, amount, 'dividende');
+    state.tax.reserves -= amount;
+    const own = state.ownership.founder;
+    const mine = Math.round(amount * own);
+    const tax = Math.round(mine * rate);
+    personalIn(state, mine - tax, 'dividendes');
+    state.tax.year.dividendsGross += mine;
+    state.tax.year.dividendRateMax = Math.max(state.tax.year.dividendRateMax, rate);
+    state.stats.dividendsYear = (state.stats.dividendsYear || 0) + (amount - mine);
+    state.stats.dividendsTotal = (state.stats.dividendsTotal || 0) + mine - tax;
+    log(state, 'good', `Dividende de ${Math.round(amount / 100)} € brut : tu reçois ${Math.round((mine - tax) / 100)} € net (précompte ${Math.round(rate * 100)} %).`, true);
     return { ok: true };
   },
   unretire(state) {

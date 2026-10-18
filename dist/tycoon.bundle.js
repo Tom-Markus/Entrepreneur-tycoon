@@ -2244,78 +2244,44 @@ function monthEnd(state, rng) {
 return __exports;
 })();
 
-// ---- src/engine/systems/owner.js ----
-__m["src/engine/systems/owner.js"] = (function () {
+// ---- src/data/finance.js ----
+__m["src/data/finance.js"] = (function () {
 const __exports = {};
-__def(__exports, { "transferToOwner": () => transferToOwner, "monthEnd": () => monthEnd, "endOfMonthLiving": () => endOfMonthLiving });
-// Le dirigeant : prélèvements (indépendant) ou rémunération (SRL), coût de la vie.
-// La fiscalité personnelle détaillée (IPP, cotisations, précompte) est dans tax.js.
+__def(__exports, { "FINANCE": () => FINANCE });
+// Paramètres de financement (banque, investisseurs). Montants en centimes. [approx]
+// Les taux sont indicatifs (marché belge 2025-2026 pour un crédit professionnel
+// de PME : ≈ 4 à 7 %) et évoluent avec le « taux directeur » du jeu.
 
-const { pay, personalIn, personalOut } = __m["src/engine/ledger.js"];
-const { log } = __m["src/engine/log.js"];
-
-/**
- * Transfert du compte pro vers le compte perso.
- * Indépendant : simple prélèvement (le bénéfice est taxé à l'IPP de toute façon).
- * SRL : rémunération de dirigeant (charge déductible pour la société) ; le
- * précompte professionnel est géré par tax.js via `state.personal.payslip`.
- */
-function transferToOwner(state, amount, reason = 'draw') {
-  if (amount <= 0) return 0;
-  if (state.meta.legal === 'srl') {
-    pay(state, amount, 'remuneration');
-    state.personal.grossPayYear = (state.personal.grossPayYear || 0) + amount;
-    state.personal.pendingGross = (state.personal.pendingGross || 0) + amount;
-  } else {
-    pay(state, amount, 'prelevement');
-  }
-  personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
-  return amount;
-}
-
-function monthEnd(state) {
-  const p = state.personal;
-  // 1) Prélèvement / rémunération du mois (dans la limite de ce qui est disponible).
-  const available = Math.max(0, state.cash + state.finance.overdraftLimit * 0.5);
-  const draw = Math.min(p.draw, available);
-  transferToOwner(state, draw);
-  if (draw < p.draw) log(state, 'bad', 'Trésorerie trop juste : ta rémunération du mois a été réduite.');
-}
-
-/** Après les impôts du mois : coût de la vie, renflouement si nécessaire. */
-function endOfMonthLiving(state) {
-  const p = state.personal;
-  personalOut(state, p.livingCost, 'vie');
-  if (p.cash < 0) {
-    const need = -p.cash;
-    transferToOwner(state, need, 'emergency');
-    log(state, 'bad', `Ton compte perso était à sec : ${(need / 100).toFixed(0)} € pris sur l'entreprise pour vivre.`);
-  }
-  p.history.push({ cash: p.cash, ...p.month });
-  if (p.history.length > 240) p.history.shift();
-  p.month = {};
-}
-return __exports;
-})();
-
-// ---- src/engine/systems/living.js ----
-__m["src/engine/systems/living.js"] = (function () {
-const __exports = {};
-__def(__exports, { "monthEnd": () => monthEnd });
-// Coût de la vie du dirigeant (après rémunération et impôts du mois).
-
-const { endOfMonthLiving } = __m["src/engine/systems/owner.js"];
-
-function monthEnd(state) {
-  endOfMonthLiving(state);
-}
+const FINANCE = {
+  loan: {
+    baseSpread: 0.025, // marge de la banque au-dessus du taux directeur
+    independantPremium: 0.005, // personne physique : un peu plus cher
+    minMonths: 12,
+    maxMonths: 84,
+    startupMax: { independant: 1_500_000, srl: 2_500_000 }, // prêt de démarrage sans historique
+    revenueMultiple: 6, // plafond ≈ 6 mois de CA moyen
+    maxTotalDebt: 50_000_000,
+    maxDebtServiceShare: 0.35, // mensualités ≤ 35 % du CA mensuel moyen
+    earlyRepaymentMonthsOfInterest: 3, // indemnité de remploi (simplifiée)
+  },
+  investor: {
+    // Valorisation pré-money ≈ max(CA annuel × 1, bénéfice annuel × 6)
+    revenueMultiple: 1,
+    profitMultiple: 6,
+    minValuation: 5_000_000,
+    stakes: [0.1, 0.15, 0.2, 0.25],
+    maxInvestorShare: 0.49,
+    expectedYield: 0.05, // dividende annuel attendu (% de l'investissement)
+    offerDays: 30,
+  },
+};
 return __exports;
 })();
 
 // ---- src/engine/systems/finance.js ----
 __m["src/engine/systems/finance.js"] = (function () {
 const __exports = {};
-__def(__exports, { "daily": () => daily, "endOfDay": () => endOfDay, "avgRevenue": () => avgRevenue, "monthEnd": () => monthEnd });
+__def(__exports, { "daily": () => daily, "endOfDay": () => endOfDay, "avgRevenue": () => avgRevenue, "monthEnd": () => monthEnd, "yearEnd": () => yearEnd });
 // Finance : créances, découvert, historique mensuel, trésorerie quotidienne.
 
 const { ECONOMY } = __m["src/data/economy.js"];
@@ -2380,7 +2346,600 @@ function monthEnd(state) {
   f.overdraftLimit = clamp(Math.round(avg * ECONOMY.overdraftRevenueShare * credibility), ECONOMY.overdraftStart, ECONOMY.overdraftMax);
   if (state.flags.overdraftCut) f.overdraftLimit = ECONOMY.overdraftStart;
   resetMonth(state);
-  if (d.month === 11) resetYear(state);
+}
+
+/** Après le calcul de l'impôt annuel (tax.yearEnd), on remet l'année à zéro. */
+function yearEnd(state) {
+  resetYear(state);
+}
+return __exports;
+})();
+
+// ---- src/engine/systems/loans.js ----
+__m["src/engine/systems/loans.js"] = (function () {
+const __exports = {};
+__def(__exports, { "init": () => init, "totalDebt": () => totalDebt, "monthlyDebtService": () => monthlyDebtService, "loanOffer": () => loanOffer, "requestLoan": () => requestLoan, "repayLoan": () => repayLoan, "monthEnd": () => monthEnd, "valuation": () => valuation, "makeInvestorOffer": () => makeInvestorOffer, "acceptInvestor": () => acceptInvestor, "yearEnd": () => yearEnd });
+// Financement : prêts bancaires (annuités), remboursement anticipé, investisseurs (SRL).
+
+const { FINANCE } = __m["src/data/finance.js"];
+const { pay, receive } = __m["src/engine/ledger.js"];
+const { annuity, clamp } = __m["src/engine/money.js"];
+const { log } = __m["src/engine/log.js"];
+const { avgRevenue } = __m["src/engine/systems/finance.js"];
+
+const L = FINANCE.loan;
+
+function init(state) {
+  state.loans = [];
+  state.loanSeq = 0;
+  state.ownership = { founder: 1, investors: [] };
+  state.offers = { investor: null };
+}
+
+function totalDebt(state) {
+  return state.loans.reduce((s, l) => s + l.remaining, 0);
+}
+
+function monthlyDebtService(state) {
+  return state.loans.reduce((s, l) => s + l.payment, 0);
+}
+
+function avgProfit(state, n = 6) {
+  const h = state.finance.history.slice(-n);
+  return h.length ? h.reduce((s, x) => s + x.profit, 0) / h.length : 0;
+}
+
+/** Taux proposé par la banque (annuel) et plafond empruntable. */
+function loanOffer(state, months = 48) {
+  const rep = state.company.reputation;
+  const rev = avgRevenue(state, 6);
+  const profit = avgProfit(state, 6);
+  const debt = totalDebt(state);
+  let rate = state.world.baseRate + L.baseSpread;
+  if (state.meta.legal === 'independant') rate += L.independantPremium;
+  rate += rep < 30 ? 0.02 : rep < 50 ? 0.01 : rep < 70 ? 0.004 : 0;
+  if (profit < 0) rate += 0.015;
+  rate += (months / 12 - 3) * 0.0015; // les longues durées coûtent un peu plus
+  if (state.endgame && state.endgame.distressDays > 0) rate += 0.03;
+  rate = clamp(rate, 0.015, 0.16);
+  const history = state.finance.history.length;
+  let max = history < 6 ? L.startupMax[state.meta.legal] : rev * L.revenueMultiple * (0.6 + rep / 100);
+  // Capacité de remboursement : mensualités totales ≤ 35 % du CA mensuel moyen
+  const service = monthlyDebtService(state);
+  const capacity = Math.max(0, (rev || 200_000) * L.maxDebtServiceShare - service);
+  const r = rate / 12;
+  const maxFromService = r > 0 ? (capacity * (1 - Math.pow(1 + r, -months))) / r : capacity * months;
+  max = Math.min(max, maxFromService, L.maxTotalDebt - debt);
+  if (state.endgame && state.endgame.distressDays > 20) max = Math.min(max, rev);
+  if (history >= 6 && profit < -rev * 0.3) max = 0; // la banque refuse une activité qui saigne
+  return { rate, max: Math.max(0, Math.floor(max / 100_000) * 100_000) };
+}
+
+function requestLoan(state, amount, months) {
+  months = clamp(Math.round(months), L.minMonths, L.maxMonths);
+  amount = Math.round(amount);
+  if (!(amount >= 100_000)) return { ok: false, message: 'Montant minimum : 1 000 €.' };
+  const offer = loanOffer(state, months);
+  if (amount > offer.max) return { ok: false, message: `La banque refuse : maximum ${Math.round(offer.max / 100)} € aujourd'hui.` };
+  const payment = annuity(amount, offer.rate, months);
+  state.loanSeq += 1;
+  state.loans.push({ id: state.loanSeq, principal: amount, remaining: amount, rate: offer.rate, months, monthsLeft: months, payment, startDay: state.time.day });
+  receive(state, amount, 'pret');
+  state.stats.loansTaken = (state.stats.loansTaken || 0) + 1;
+  log(state, 'info', `Prêt accordé : ${Math.round(amount / 100)} € sur ${months} mois à ${(offer.rate * 100).toFixed(2)} % (mensualité ${Math.round(payment / 100)} €).`, true);
+  return { ok: true };
+}
+
+function repayLoan(state, id) {
+  const l = state.loans.find((x) => x.id === id);
+  if (!l) return { ok: false, message: 'Prêt introuvable.' };
+  const penalty = Math.round(l.remaining * (l.rate / 12) * L.earlyRepaymentMonthsOfInterest);
+  if (state.cash - l.remaining - penalty < 0) return { ok: false, message: 'Trésorerie insuffisante pour rembourser ce prêt.' };
+  pay(state, l.remaining, 'remboursement');
+  pay(state, penalty, 'interets');
+  state.loans = state.loans.filter((x) => x !== l);
+  state.stats.loansRepaid = (state.stats.loansRepaid || 0) + 1;
+  log(state, 'good', `Prêt remboursé par anticipation (indemnité de remploi : ${Math.round(penalty / 100)} €).`);
+  return { ok: true };
+}
+
+function monthEnd(state) {
+  for (const l of state.loans) {
+    const interest = Math.round(l.remaining * (l.rate / 12));
+    const principal = Math.min(l.remaining, l.payment - interest);
+    pay(state, interest, 'interets');
+    pay(state, principal, 'remboursement');
+    l.remaining -= principal;
+    l.monthsLeft -= 1;
+  }
+  const done = state.loans.filter((l) => l.remaining <= 0 || l.monthsLeft <= 0);
+  if (done.length) {
+    state.loans = state.loans.filter((l) => !done.includes(l));
+    state.stats.loansRepaid = (state.stats.loansRepaid || 0) + done.length;
+    log(state, 'good', 'Un prêt est entièrement remboursé.');
+  }
+  // Offre d'investisseur expirée
+  if (state.offers.investor && state.offers.investor.expires <= state.time.day) state.offers.investor = null;
+}
+
+// --- Investisseurs (SRL) --------------------------------------------------------
+
+function valuation(state) {
+  const I = FINANCE.investor;
+  const rev = avgRevenue(state, 12) * 12;
+  const profit = avgProfit(state, 12) * 12;
+  return Math.max(I.minValuation, rev * I.revenueMultiple, profit * I.profitMultiple);
+}
+
+function makeInvestorOffer(state, rng) {
+  if (state.meta.legal !== 'srl') return { ok: false, message: 'Seule une société (SRL) peut ouvrir son capital.' };
+  const I = FINANCE.investor;
+  const investorsShare = 1 - state.ownership.founder;
+  const stakes = I.stakes.filter((s) => investorsShare + s <= I.maxInvestorShare);
+  if (!stakes.length) return { ok: false, message: 'Tu garderais moins de 51 % : aucun investisseur supplémentaire.' };
+  const stake = rng.pick(stakes);
+  const v = valuation(state) * (0.8 + state.company.reputation / 250) * rng.range(0.85, 1.15);
+  const amount = Math.round((v * stake) / (1 - stake) / 100_000) * 100_000;
+  state.offers.investor = { stake, amount, expires: state.time.day + I.offerDays, name: rng.pick(['Wallonie Angels', 'Brussels Seed Club', 'Flanders Ventures', 'Famille Delvaux', 'Mme Peeters, ex-CEO']) };
+  return { ok: true };
+}
+
+function acceptInvestor(state) {
+  const o = state.offers.investor;
+  if (!o) return { ok: false, message: 'Aucune offre en cours.' };
+  if (o.expires <= state.time.day) return { ok: false, message: 'Offre expirée.' };
+  receive(state, o.amount, 'investisseur');
+  state.ownership.founder = Math.round(state.ownership.founder * (1 - o.stake) * 10000) / 10000;
+  state.ownership.investors.push({ name: o.name, invested: o.amount, day: state.time.day, stake: o.stake });
+  state.offers.investor = null;
+  state.stats.fundraises = (state.stats.fundraises || 0) + 1;
+  log(state, 'good', `${o.name} investit ${Math.round(o.amount / 100)} € contre ${Math.round(o.stake * 100)} % des parts. Tu détiens désormais ${Math.round(state.ownership.founder * 100)} %.`, true);
+  return { ok: true };
+}
+
+/** Contrepartie : les investisseurs attendent un dividende annuel. */
+function yearEnd(state) {
+  if (!state.ownership.investors.length) return;
+  const expected = state.ownership.investors.reduce((s, i) => s + i.invested, 0) * FINANCE.investor.expectedYield;
+  if ((state.stats.dividendsYear || 0) < expected * 0.5) {
+    state.company.reputation = Math.max(0, state.company.reputation - 3);
+    for (const e of state.staff.employees) e.motivation = Math.max(0, e.motivation - 5);
+    log(state, 'bad', 'Tes investisseurs sont mécontents : pas assez de dividendes cette année. Ambiance tendue et rumeurs dans la presse.', true);
+  }
+  state.stats.dividendsYear = 0;
+}
+return __exports;
+})();
+
+// ---- src/engine/taxmath.js ----
+__m["src/engine/taxmath.js"] = (function () {
+const __exports = {};
+__def(__exports, { "ippTax": () => ippTax, "marginalRate": () => marginalRate, "socialOnIncome": () => socialOnIncome, "socialQuarterly": () => socialQuarterly, "socialAnnualDue": () => socialAnnualDue, "socialBaseFromProfit": () => socialBaseFromProfit, "isocTax": () => isocTax, "reducedRateEligible": () => reducedRateEligible, "directorFlatCosts": () => directorFlatCosts, "directorIpp": () => directorIpp, "monthlyWithholding": () => monthlyWithholding, "dividendRate": () => dividendRate, "dividendExemptionCredit": () => dividendExemptionCredit });
+// Calculs fiscaux PURS (aucun état) à partir de src/data/fiscalite.js.
+// Tous les montants en centimes.
+
+const { FISCALITE: F } = __m["src/data/fiscalite.js"];
+
+/** Impôt progressif brut sur un montant selon les tranches. */
+function progressive(amount, brackets) {
+  let tax = 0;
+  let prev = 0;
+  for (const b of brackets) {
+    if (amount <= prev) break;
+    const slice = Math.min(amount, b.upTo) - prev;
+    tax += slice * b.rate;
+    prev = b.upTo;
+  }
+  return tax;
+}
+
+/**
+ * IPP d'un revenu imposable annuel (centimes).
+ * Quotité exemptée = réduction d'impôt calculée sur la quotité au barème.
+ * Additionnels communaux appliqués sur l'impôt de l'État.
+ */
+function ippTax(taxable) {
+  const t = Math.max(0, taxable);
+  const gross = progressive(t, F.ipp.brackets);
+  const reduction = progressive(Math.min(t, F.ipp.quotiteExemptee), F.ipp.brackets);
+  const state = Math.max(0, gross - reduction);
+  const total = Math.round(state * (1 + F.ipp.centimesAdditionnels));
+  return { total, state: Math.round(state), communal: total - Math.round(state), marginal: marginalRate(t) };
+}
+
+function marginalRate(taxable) {
+  for (const b of F.ipp.brackets) if (taxable <= b.upTo) return b.rate;
+  return F.ipp.brackets[F.ipp.brackets.length - 1].rate;
+}
+
+/** Cotisations sociales annuelles « théoriques » sur un revenu (sans minimum, sans frais). */
+function socialOnIncome(income) {
+  const s = F.social;
+  const i = Math.max(0, income);
+  const a = Math.min(i, s.ceiling1) * s.rate1;
+  const b = Math.max(0, Math.min(i, s.ceiling2) - s.ceiling1) * s.rate2;
+  return a + b;
+}
+
+/** Cotisation trimestrielle (minimum + frais de gestion inclus) pour une base annuelle. */
+function socialQuarterly(baseAnnual) {
+  const q = Math.max(F.social.minQuarterly, socialOnIncome(baseAnnual) / 4);
+  return Math.round(q * (1 + F.social.fraisGestion));
+}
+
+/** Cotisations annuelles définitives pour un revenu réel (4 trimestres). */
+function socialAnnualDue(income) {
+  return socialQuarterly(income) * 4;
+}
+
+/**
+ * Revenu de référence des cotisations à partir d'un bénéfice « avant cotisations ».
+ * Les cotisations sont elles-mêmes déductibles : on résout r = P − c(r) par
+ * quelques itérations (convergence rapide, le taux < 21 %).
+ */
+function socialBaseFromProfit(profitBeforeSocial) {
+  let r = Math.max(0, profitBeforeSocial);
+  for (let i = 0; i < 6; i++) r = Math.max(0, profitBeforeSocial - socialAnnualDue(r));
+  return r;
+}
+
+/**
+ * ISOC. reducedOk = la société remplit les conditions du taux réduit PME
+ * (rémunération du dirigeant suffisante).
+ */
+function isocTax(taxable, reducedOk) {
+  const t = Math.max(0, taxable);
+  if (!reducedOk) return Math.round(t * F.isoc.normalRate);
+  const low = Math.min(t, F.isoc.reducedBracket);
+  return Math.round(low * F.isoc.reducedRate + (t - low) * F.isoc.normalRate);
+}
+
+/** Condition de rémunération du dirigeant pour le taux réduit. */
+function reducedRateEligible(directorPayYear, taxableProfit) {
+  return directorPayYear >= Math.min(F.isoc.minDirectorPay, Math.max(0, taxableProfit));
+}
+
+/** Frais forfaitaires du dirigeant d'entreprise. */
+function directorFlatCosts(netIncome) {
+  return Math.round(Math.min(Math.max(0, netIncome) * F.dirigeant.fraisForfaitairesRate, F.dirigeant.fraisForfaitairesMax));
+}
+
+/** IPP estimé d'un dirigeant pour une rémunération brute annuelle. */
+function directorIpp(grossAnnual) {
+  const social = socialAnnualDue(socialBaseFromProfit(grossAnnual));
+  const net = Math.max(0, grossAnnual - social);
+  return ippTax(net - directorFlatCosts(net)).total;
+}
+
+/** Précompte professionnel mensuel estimé (rémunération mensuelle constante). */
+function monthlyWithholding(grossMonthly) {
+  return Math.round(directorIpp(grossMonthly * 12) / 12);
+}
+
+/**
+ * Taux de précompte mobilier sur un dividende de la société selon son ancienneté
+ * (VVPR-bis simplifié) : exercice 1 → 30 %, exercice 2 → 20 %, ensuite 15 %.
+ */
+function dividendRate(companyYearIdx) {
+  if (companyYearIdx <= 0) return F.dividendes.precompte;
+  if (companyYearIdx === 1) return F.dividendes.vvprbisYear2;
+  return F.dividendes.vvprbisYear3;
+}
+
+/** Crédit d'impôt pour l'exonération des dividendes (833 € × taux, plafonné). */
+function dividendExemptionCredit(dividendsGross, rate) {
+  return Math.round(Math.min(dividendsGross, F.dividendes.exemption) * rate);
+}
+return __exports;
+})();
+
+// ---- src/engine/systems/owner.js ----
+__m["src/engine/systems/owner.js"] = (function () {
+const __exports = {};
+__def(__exports, { "transferToOwner": () => transferToOwner, "monthEnd": () => monthEnd, "endOfMonthLiving": () => endOfMonthLiving });
+// Le dirigeant : prélèvements (indépendant) ou rémunération (SRL), coût de la vie.
+// La fiscalité personnelle détaillée (IPP, cotisations, précompte) est dans tax.js.
+
+const { pay, personalIn, personalOut } = __m["src/engine/ledger.js"];
+const { directorIpp } = __m["src/engine/taxmath.js"];
+const { log } = __m["src/engine/log.js"];
+
+/**
+ * Transfert du compte pro vers le compte perso.
+ * Indépendant : simple prélèvement (le bénéfice est taxé à l'IPP de toute façon).
+ * SRL : rémunération de dirigeant (charge déductible pour la société), avec
+ * précompte professionnel retenu à la source (régularisé en fin d'année par tax.js).
+ */
+function transferToOwner(state, amount, reason = 'draw') {
+  if (amount <= 0) return 0;
+  if (state.meta.legal === 'srl') {
+    pay(state, amount, 'remuneration');
+    personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
+    // Précompte professionnel retenu à la source (taux moyen estimé sur l'année).
+    const annual = Math.max(amount, state.personal.draw) * 12;
+    const rate = annual > 0 ? directorIpp(annual) / annual : 0;
+    const w = Math.round(amount * rate);
+    personalOut(state, w, 'precompte');
+    state.tax.year.precompte += w;
+    state.tax.year.directorPay += amount;
+  } else {
+    pay(state, amount, 'prelevement');
+    personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
+  }
+  return amount;
+}
+
+function monthEnd(state) {
+  const p = state.personal;
+  // 1) Prélèvement / rémunération du mois (dans la limite de ce qui est disponible).
+  const available = Math.max(0, state.cash + state.finance.overdraftLimit * 0.5);
+  const draw = Math.min(p.draw, available);
+  transferToOwner(state, draw);
+  if (draw < p.draw) log(state, 'bad', 'Trésorerie trop juste : ta rémunération du mois a été réduite.');
+}
+
+/** Après les impôts du mois : coût de la vie, renflouement si nécessaire. */
+function endOfMonthLiving(state) {
+  const p = state.personal;
+  personalOut(state, p.livingCost, 'vie');
+  let taken = 0;
+  // Plusieurs passes : en SRL, le précompte retenu réduit le net versé.
+  for (let i = 0; i < 4 && p.cash < 0; i++) {
+    const need = -p.cash;
+    transferToOwner(state, need, 'emergency');
+    taken += need;
+  }
+  if (taken > 0) log(state, 'bad', `Ton compte perso était à sec : ${(taken / 100).toFixed(0)} € pris sur l'entreprise pour vivre.`);
+  p.history.push({ cash: p.cash, ...p.month });
+  if (p.history.length > 240) p.history.shift();
+  p.month = {};
+}
+return __exports;
+})();
+
+// ---- src/engine/systems/tax.js ----
+__m["src/engine/systems/tax.js"] = (function () {
+const __exports = {};
+__def(__exports, { "STARTER_YEARS": () => STARTER_YEARS, "init": () => init, "schedulePayment": () => schedulePayment, "daily": () => daily, "provisionalBase": () => provisionalBase, "quarterlySocial": () => quarterlySocial, "yearResult": () => yearResult, "estimateYearTax": () => estimateYearTax, "yearEnd": () => yearEnd, "quarterEnd": () => quarterEnd, "upcoming": () => upcoming });
+// Fiscalité : TVA trimestrielle, cotisations sociales (provisoires + régularisation),
+// IPP / ISOC annuels, précompte professionnel, dividendes, échéancier.
+// Les taux viennent de src/data/fiscalite.js ; les calculs de src/engine/taxmath.js.
+
+const { FISCALITE: F } = __m["src/data/fiscalite.js"];
+const { pay, receive, personalOut, personalIn, amortizationForYear } = __m["src/engine/ledger.js"];
+const { dateOf, dayOf, formatDate } = __m["src/engine/calendar.js"];
+const { ippTax, isocTax, reducedRateEligible, socialQuarterly, socialAnnualDue, socialBaseFromProfit, directorFlatCosts, dividendExemptionCredit } = __m["src/engine/taxmath.js"];
+const { log } = __m["src/engine/log.js"];
+
+const STARTER_YEARS = 3;
+
+function init(state) {
+  state.tax = {
+    schedule: [], // échéances à venir : { id, kind, label, dueDay, amount, payer: 'company'|'personal' }
+    seq: 0,
+    social: { chosenBase: 0, lastIncome: null, provisionalFor: {} }, // provisionalFor[année] = provisionnelles appelées pour cette année
+    year: { socialPaidCompany: 0, socialPaidPersonal: 0, precompte: 0, dividendsGross: 0, dividendRateMax: 0, directorPay: 0 },
+    lossCarry: 0,
+    reserves: 0, // bénéfices reportés distribuables (SRL)
+    results: [], // résultats annuels
+    paidTotals: { tva: 0, impot: 0, cotisations: 0 },
+    vatQuarters: [],
+  };
+}
+
+// --- Échéancier --------------------------------------------------------------
+
+function schedulePayment(state, { kind, label, dueDay, amount, payer = 'company' }) {
+  state.tax.seq += 1;
+  state.tax.schedule.push({ id: state.tax.seq, kind, label, dueDay, amount, payer });
+  state.tax.schedule.sort((a, b) => a.dueDay - b.dueDay);
+}
+
+function settle(state, item) {
+  const cat = item.kind === 'tva' ? 'tva' : item.kind === 'cotisations' || item.kind === 'regul' ? 'cotisations' : 'impot';
+  if (item.amount >= 0) {
+    if (item.payer === 'personal') {
+      personalOut(state, item.amount, cat);
+      if (cat === 'cotisations') state.tax.year.socialPaidPersonal += item.amount;
+    } else {
+      pay(state, item.amount, cat);
+      if (cat === 'cotisations') state.tax.year.socialPaidCompany += item.amount;
+    }
+    state.tax.paidTotals[cat] = (state.tax.paidTotals[cat] || 0) + item.amount;
+    if (item.amount > 0) {
+      log(state, 'tax', `${item.label} payé : ${(item.amount / 100).toLocaleString('fr-BE', { maximumFractionDigits: 0 })} €.`, item.amount > 200_000);
+      if (item.kind === 'tva') state.stats.vatPaid = (state.stats.vatPaid || 0) + 1;
+    }
+  } else {
+    const refund = -item.amount;
+    if (item.payer === 'personal') personalIn(state, refund, 'remboursement');
+    else receive(state, refund, 'autres_revenus');
+    if (cat === 'cotisations') {
+      if (item.payer === 'personal') state.tax.year.socialPaidPersonal -= refund;
+      else state.tax.year.socialPaidCompany -= refund;
+    }
+    log(state, 'good', `${item.label} : remboursement de ${(refund / 100).toLocaleString('fr-BE', { maximumFractionDigits: 0 })} €.`, refund > 100_000);
+  }
+}
+
+function daily(state) {
+  const t = state.tax;
+  const today = state.time.day;
+  while (t.schedule.length && t.schedule[0].dueDay <= today) settle(state, t.schedule.shift());
+  // Franchise TVA : sortie automatique au-delà du seuil.
+  const f = state.finance;
+  if (f.franchise && f.vatYearTurnover > F.tva.franchiseThreshold) {
+    f.franchise = false;
+    log(state, 'tax', 'Ton chiffre d’affaires dépasse 25 000 € : tu sors du régime de franchise et dois désormais facturer la TVA.', true);
+  }
+}
+
+// --- TVA ------------------------------------------------------------------------
+
+function vatDeclaration(state) {
+  const f = state.finance;
+  const d = dateOf(state.time.day);
+  const net = f.vat.collected - f.vat.deductible;
+  state.tax.vatQuarters.push({ q: d.quarter, year: d.year, collected: f.vat.collected, deductible: f.vat.deductible, net });
+  if (state.tax.vatQuarters.length > 40) state.tax.vatQuarters.shift();
+  f.vat.collected = 0;
+  f.vat.deductible = 0;
+  if (net === 0) return;
+  // Échéance : le 20 du mois qui suit le trimestre.
+  const nextMonth = d.month + 1;
+  const due = nextMonth > 11 ? dayOf(d.yearIdx + 1, 0, F.tva.dueDayOfMonth) : dayOf(d.yearIdx, nextMonth, F.tva.dueDayOfMonth);
+  schedulePayment(state, { kind: 'tva', label: `TVA du T${d.quarter + 1} ${d.year}`, dueDay: due, amount: net });
+}
+
+// --- Cotisations sociales ----------------------------------------------------------
+
+/** Base annuelle utilisée pour les cotisations provisoires. */
+function provisionalBase(state) {
+  const yearIdx = dateOf(state.time.day).yearIdx;
+  const s = state.tax.social;
+  const known = yearIdx >= STARTER_YEARS && s.lastIncome != null ? s.lastIncome : 0;
+  return Math.max(known, s.chosenBase || 0);
+}
+
+function quarterlySocial(state) {
+  return socialQuarterly(provisionalBase(state));
+}
+
+function socialProvisional(state) {
+  const amount = quarterlySocial(state);
+  const d = dateOf(state.time.day);
+  // Indépendant : payé par l'entreprise (même patrimoine). SRL : par le dirigeant.
+  const payer = state.meta.legal === 'srl' ? 'personal' : 'company';
+  const pf = state.tax.social.provisionalFor;
+  pf[d.yearIdx] = (pf[d.yearIdx] || 0) + amount;
+  schedulePayment(state, { kind: 'cotisations', label: `Cotisations sociales T${d.quarter + 1}`, dueDay: state.time.day + 1, amount, payer });
+}
+
+// --- Annuel ---------------------------------------------------------------------------
+
+function annualDue(yearIdx) {
+  return dayOf(yearIdx + 1, 5, 30); // 30 juin N+1 (simplifié)
+}
+
+function regulDue(yearIdx) {
+  return dayOf(yearIdx + 1, F.social.regularizationMonth, 15);
+}
+
+/** Résultat fiscal de l'année en cours (estimation possible en cours d'année). */
+function yearResult(state, { projectFullYear = false } = {}) {
+  const f = state.finance;
+  const d = dateOf(state.time.day);
+  const t = state.tax;
+  const frac = projectFullYear ? Math.max(1, (d.dayOfYear + 1) / 360) : 1;
+  const scale = projectFullYear ? 1 / Math.min(1, frac) : 1;
+  const revenue = f.year.revenue * scale;
+  const expenses = f.year.expenses * scale;
+  const amort = amortizationForYear(state, d.yearIdx);
+  const operating = Math.round(revenue - expenses - amort);
+  if (state.meta.legal === 'srl') {
+    const directorPay = t.year.directorPay * scale;
+    const taxable = Math.max(0, operating - t.lossCarry);
+    const reduced = reducedRateEligible(directorPay, taxable);
+    const isoc = isocTax(taxable, reduced);
+    // IPP du dirigeant sur sa rémunération
+    const socialP = Math.max(t.year.socialPaidPersonal * scale, socialAnnualDue(socialBaseFromProfit(directorPay)));
+    const net = Math.max(0, directorPay - socialP);
+    const ipp = ippTax(net - directorFlatCosts(net)).total;
+    return { legal: 'srl', revenue, expenses, amort, operating, taxable, reduced, isoc, directorPay, ipp, precompte: t.year.precompte * scale, social: socialP };
+  }
+  const socialPaid = t.year.socialPaidCompany * scale;
+  const beforeSocial = operating;
+  const taxable = Math.max(0, beforeSocial - socialPaid - t.lossCarry);
+  const ipp = ippTax(taxable).total;
+  return { legal: 'independant', revenue, expenses, amort, operating, taxable, ipp, social: socialPaid, beforeSocial };
+}
+
+/** Impôt estimé pour l'année en cours (projection sur 12 mois) — affiché dans Finances. */
+function estimateYearTax(state) {
+  const r = yearResult(state, { projectFullYear: true });
+  if (r.legal === 'srl') return { company: r.isoc, personal: Math.max(0, r.ipp - r.precompte), result: r };
+  const base = socialBaseFromProfit(r.beforeSocial);
+  const regul = Math.max(0, socialAnnualDue(base) - r.social);
+  return { company: r.ipp + regul, personal: 0, result: r, regul };
+}
+
+function yearEnd(state) {
+  const t = state.tax;
+  const d = dateOf(state.time.day);
+  const r = yearResult(state);
+  const result = { year: d.year, yearIdx: d.yearIdx, ...r };
+
+  if (r.legal === 'srl') {
+    // Perte reportée
+    if (r.operating < 0) t.lossCarry += -r.operating;
+    else t.lossCarry = Math.max(0, t.lossCarry - r.operating);
+    if (r.isoc > 0) schedulePayment(state, { kind: 'impot', label: `ISOC ${d.year}`, dueDay: annualDue(d.yearIdx), amount: r.isoc });
+    t.reserves += Math.max(0, r.operating - r.isoc);
+    if (r.operating < 0) t.reserves = Math.max(0, t.reserves + r.operating);
+    // IPP du dirigeant : solde après précompte et crédit dividendes
+    const credit = dividendExemptionCredit(t.year.dividendsGross, t.year.dividendRateMax);
+    const balance = r.ipp - t.year.precompte - credit;
+    result.dividendCredit = credit;
+    result.ippBalance = balance;
+    if (balance !== 0) schedulePayment(state, { kind: 'impot', label: `Solde IPP ${d.year}`, dueDay: annualDue(d.yearIdx), amount: balance, payer: 'personal' });
+    // Régularisation des cotisations sur la rémunération réelle
+    const base = socialBaseFromProfit(r.directorPay);
+    const regul = socialAnnualDue(base) - (t.social.provisionalFor[d.yearIdx] || 0);
+    result.regul = regul;
+    if (Math.abs(regul) > 1000) schedulePayment(state, { kind: 'regul', label: `Régularisation cotisations ${d.year}`, dueDay: regulDue(d.yearIdx), amount: regul, payer: 'personal' });
+    t.social.lastIncome = base;
+    if (!r.reduced && r.taxable > 0) log(state, 'tax', `ISOC ${d.year} au taux plein (25 %) : ta rémunération (${Math.round(r.directorPay / 100)} €) est sous le seuil requis pour le taux réduit.`, true);
+  } else {
+    if (r.beforeSocial - r.social < 0) t.lossCarry += -(r.beforeSocial - r.social);
+    else t.lossCarry = Math.max(0, t.lossCarry - (r.beforeSocial - r.social));
+    const credit = dividendExemptionCredit(t.year.dividendsGross, t.year.dividendRateMax);
+    const ipp = r.ipp - credit;
+    result.dividendCredit = credit;
+    if (ipp !== 0) schedulePayment(state, { kind: 'impot', label: `IPP ${d.year}`, dueDay: annualDue(d.yearIdx), amount: ipp });
+    const base = socialBaseFromProfit(r.beforeSocial);
+    const regul = socialAnnualDue(base) - (t.social.provisionalFor[d.yearIdx] || 0);
+    result.regul = regul;
+    if (Math.abs(regul) > 1000) {
+      schedulePayment(state, { kind: 'regul', label: `Régularisation cotisations ${d.year}`, dueDay: regulDue(d.yearIdx), amount: regul });
+      if (regul > 300_000) log(state, 'tax', `Ta caisse d'assurances sociales calcule une régularisation de ${Math.round(regul / 100)} € pour ${d.year}, payable le ${formatDate(regulDue(d.yearIdx))}. Prévois-la !`, true);
+    }
+    t.social.lastIncome = base;
+  }
+  delete t.social.provisionalFor[d.yearIdx - 2];
+  t.results.push(result);
+  if (t.results.length > 60) t.results.shift();
+  t.year = { socialPaidCompany: 0, socialPaidPersonal: 0, precompte: 0, dividendsGross: 0, dividendRateMax: 0, directorPay: 0 };
+  state.finance.vatYearTurnover = 0;
+  const total = (result.isoc || 0) + Math.max(0, result.ippBalance ?? result.ipp ?? 0);
+  log(state, 'tax', `Clôture ${d.year} : résultat ${Math.round(r.operating / 100)} €, impôt calculé ${Math.round(total / 100)} € exigible le ${formatDate(annualDue(d.yearIdx))}.`, true);
+}
+
+function quarterEnd(state) {
+  if (!state.finance.franchise) vatDeclaration(state);
+  else {
+    state.finance.vat.collected = 0;
+    state.finance.vat.deductible = 0;
+  }
+  socialProvisional(state);
+}
+
+/** Échéances à venir (pour l'interface et les bots). */
+function upcoming(state, days = 400) {
+  return state.tax.schedule.filter((s) => s.dueDay <= state.time.day + days);
+}
+return __exports;
+})();
+
+// ---- src/engine/systems/living.js ----
+__m["src/engine/systems/living.js"] = (function () {
+const __exports = {};
+__def(__exports, { "monthEnd": () => monthEnd });
+// Coût de la vie du dirigeant (après rémunération et impôts du mois).
+
+const { endOfMonthLiving } = __m["src/engine/systems/owner.js"];
+
+function monthEnd(state) {
+  endOfMonthLiving(state);
 }
 return __exports;
 })();
@@ -2656,7 +3215,10 @@ const { registerActions } = __m["src/engine/actions.js"];
 const { sectorModule } = __m["src/engine/sectors/index.js"];
 const { buyUpgrade } = __m["src/engine/upgrades.js"];
 const staff = __m["src/engine/systems/staff.js"];
-const { personalOut, receive } = __m["src/engine/ledger.js"];
+const { personalOut, personalIn, receive, pay } = __m["src/engine/ledger.js"];
+const loans = __m["src/engine/systems/loans.js"];
+const { dividendRate } = __m["src/engine/taxmath.js"];
+const { dateOf } = __m["src/engine/calendar.js"];
 const { clamp } = __m["src/engine/money.js"];
 const { log } = __m["src/engine/log.js"];
 
@@ -2721,6 +3283,53 @@ registerActions({
     log(state, 'good', 'Tu te retires de l’opérationnel : ton gérant dirige désormais l’entreprise.', true);
     return { ok: true };
   },
+  requestLoan(state, a) {
+    return loans.requestLoan(state, Number(a.amount), Number(a.months));
+  },
+  repayLoan(state, a) {
+    return loans.repayLoan(state, a.id);
+  },
+  seekInvestor(state, a, rng) {
+    if (state.offers.investor) return { ok: false, message: 'Une offre est déjà sur la table.' };
+    if ((state.stats.lastInvestorSearch ?? -999) > state.time.day - 90) return { ok: false, message: 'Les investisseurs ne te recevront pas avant 3 mois.' };
+    state.stats.lastInvestorSearch = state.time.day;
+    return loans.makeInvestorOffer(state, rng);
+  },
+  acceptInvestor(state) {
+    return loans.acceptInvestor(state);
+  },
+  declineInvestor(state) {
+    state.offers.investor = null;
+    return { ok: true };
+  },
+  /** Base annuelle choisie pour les cotisations sociales provisoires (0 = automatique). */
+  setSocialBase(state, a) {
+    const v = Math.round(Number(a.value));
+    if (!Number.isFinite(v) || v < 0) return { ok: false, message: 'Valeur invalide.' };
+    state.tax.social.chosenBase = Math.min(v, 50_000_000);
+    return { ok: true };
+  },
+  /** Dividende brut décidé par l'assemblée générale (SRL). */
+  payDividend(state, a) {
+    if (state.meta.legal !== 'srl') return { ok: false, message: 'Seule une société verse des dividendes.' };
+    const amount = Math.round(Number(a.amount));
+    if (!(amount >= 10_000)) return { ok: false, message: 'Montant minimum : 100 €.' };
+    if (amount > state.tax.reserves) return { ok: false, message: 'Pas assez de bénéfices reportés (réserves) : on ne distribue que des bénéfices déjà taxés.' };
+    if (amount > state.cash) return { ok: false, message: 'Trésorerie insuffisante (test de liquidité).' };
+    const rate = dividendRate(dateOf(state.time.day).yearIdx);
+    pay(state, amount, 'dividende');
+    state.tax.reserves -= amount;
+    const own = state.ownership.founder;
+    const mine = Math.round(amount * own);
+    const tax = Math.round(mine * rate);
+    personalIn(state, mine - tax, 'dividendes');
+    state.tax.year.dividendsGross += mine;
+    state.tax.year.dividendRateMax = Math.max(state.tax.year.dividendRateMax, rate);
+    state.stats.dividendsYear = (state.stats.dividendsYear || 0) + (amount - mine);
+    state.stats.dividendsTotal = (state.stats.dividendsTotal || 0) + mine - tax;
+    log(state, 'good', `Dividende de ${Math.round(amount / 100)} € brut : tu reçois ${Math.round((mine - tax) / 100)} € net (précompte ${Math.round(rate * 100)} %).`, true);
+    return { ok: true };
+  },
   unretire(state) {
     if (state.staff.founder.active) return { ok: false, message: 'Tu travailles déjà dans l’entreprise.' };
     if (staff.seatsAvailable(state) <= 0) return { ok: false, message: 'Plus de place dans les locaux.' };
@@ -2740,19 +3349,21 @@ __def(__exports, { "SYSTEMS": () => SYSTEMS, "initHooks": () => initHooks });
 // Chaque système peut exposer : init(state, opts, diff, rng), daily(state, rng),
 // monthEnd(state, rng), quarterEnd(state, rng), yearEnd(state, rng), endOfDay(state, rng).
 // L'ordre du tableau est l'ordre d'exécution (important pour le déterminisme) :
-//   monde → entreprise → secteur → équipe → dirigeant → coût de la vie → finance → fin de partie
+//   monde → entreprise → secteur → équipe → prêts → dirigeant → fiscalité → coût de la vie → finance → fin de partie
 
 const core = __m["src/engine/systems/core.js"];
 const company = __m["src/engine/systems/company.js"];
 const sector = __m["src/engine/systems/sector.js"];
 const staff = __m["src/engine/systems/staff.js"];
+const loans = __m["src/engine/systems/loans.js"];
 const owner = __m["src/engine/systems/owner.js"];
+const tax = __m["src/engine/systems/tax.js"];
 const living = __m["src/engine/systems/living.js"];
 const finance = __m["src/engine/systems/finance.js"];
 const endgame = __m["src/engine/systems/endgame.js"];
 
 
-const SYSTEMS = [core, company, sector, staff, owner, living, finance, endgame];
+const SYSTEMS = [core, company, sector, staff, loans, owner, tax, living, finance, endgame];
 
 function initHooks() {
   return SYSTEMS.filter((s) => s.init).map((s) => s.init);
@@ -4550,13 +5161,20 @@ return __exports;
 __m["src/ui/panels/finances.js"] = (function () {
 const __exports = {};
 __def(__exports, { "panel": () => panel });
-// Onglet Finances : compte de résultat, trésorerie, TVA.
+// Onglet Finances : trésorerie, échéancier fiscal, compte de résultat,
+// financement (prêts, investisseurs), rémunération et dividendes.
 
-const { esc, help, eurInput } = __m["src/ui/dom.js"];
-const { eur } = __m["src/ui/format.js"];
+const { esc, help, eurInput, actBtn } = __m["src/ui/dom.js"];
+const { eur, pct } = __m["src/ui/format.js"];
 const { CATEGORIES } = __m["src/data/economy.js"];
-const { formatMonth } = __m["src/engine/calendar.js"];
+const { SIMPLIFICATIONS } = __m["src/data/fiscalite.js"];
+const { formatMonth, formatDate } = __m["src/engine/calendar.js"];
 const { receivablesTotal } = __m["src/engine/ledger.js"];
+const { estimateYearTax, quarterlySocial, provisionalBase, STARTER_YEARS } = __m["src/engine/systems/tax.js"];
+const { loanOffer, totalDebt, valuation } = __m["src/engine/systems/loans.js"];
+const { monthlyWithholding } = __m["src/engine/taxmath.js"];
+const { annuity } = __m["src/engine/money.js"];
+const { dateOf } = __m["src/engine/calendar.js"];
 
 function catRows(obj) {
   return Object.entries(obj)
@@ -4566,6 +5184,8 @@ function catRows(obj) {
     .join('');
 }
 
+let loanForm = { amount: 1_000_000, months: 48 };
+
 const panel = {
   id: 'finances',
   label: 'Finances',
@@ -4573,34 +5193,121 @@ const panel = {
   render(state) {
     const f = state.finance;
     const m = f.month;
-    const hist = f.history.slice(-6).reverse();
+    const srl = state.meta.legal === 'srl';
     const vatDue = f.vat.collected - f.vat.deductible;
+    const est = estimateYearTax(state);
+    const sched = state.tax.schedule.slice(0, 8);
+    const offer = loanOffer(state, loanForm.months);
+    const pay = annuity(Math.min(loanForm.amount, Math.max(offer.max, 0)) || loanForm.amount, offer.rate, loanForm.months);
+    const hist = f.history.slice(-6).reverse();
+    const yearIdx = dateOf(state.time.day).yearIdx;
+    const inv = state.offers.investor;
     return `
     <section class="card-block">
       <h3>Trésorerie ${help('Trésorerie')}</h3>
       <div class="stat-grid">
-        <div><span class="muted">Compte pro</span><strong class="${state.cash < 0 ? 'bad' : ''}">${eur(state.cash)}</strong></div>
-        <div><span class="muted">Découvert autorisé</span><strong>${eur(f.overdraftLimit, { decimals: false })}</strong></div>
-        <div><span class="muted">Factures à encaisser</span><strong>${eur(receivablesTotal(state), { decimals: false })}</strong></div>
-        <div><span class="muted">TVA du trimestre à reverser ${help('TVA')}</span><strong class="${vatDue > 0 ? 'warn' : ''}">${eur(vatDue, { decimals: false })}</strong></div>
+        <div><span class="muted">Compte pro</span><strong class="${state.cash < 0 ? 'bad' : ''}">${eur(state.cash, { decimals: false })}</strong></div>
+        <div><span class="muted">Découvert autorisé ${help('Découvert')}</span><strong>${eur(f.overdraftLimit, { decimals: false })}</strong></div>
+        <div><span class="muted">Factures à encaisser ${help('Créance')}</span><strong>${eur(receivablesTotal(state), { decimals: false })}</strong></div>
+        <div><span class="muted">TVA du trimestre ${help('TVA')}</span><strong class="${vatDue > 0 ? 'warn' : 'good'}">${vatDue >= 0 ? 'à reverser ' : 'à récupérer '}${eur(Math.abs(vatDue), { decimals: false })}</strong></div>
+        <div><span class="muted">Impôt estimé ${dateOf(state.time.day).year} ${help(srl ? 'ISOC' : 'IPP')}</span><strong class="warn">${eur(est.company, { decimals: false })}</strong></div>
+        <div><span class="muted">Dettes bancaires</span><strong>${eur(totalDebt(state), { decimals: false })}</strong></div>
       </div>
-      ${eurInput('draw', state.personal.draw, { type: 'setDraw' }, { min: 0, max: 50000, step: 50, label: state.meta.legal === 'srl' ? 'Ta rémunération brute mensuelle' : 'Ton prélèvement mensuel' })}
+      ${f.franchise ? '<p class="small">Régime de franchise TVA actif : tu ne factures pas de TVA (et ne la récupères pas).</p>' : ''}
+      <p class="small muted">💡 Conseil : garde de côté la TVA du trimestre + l'impôt estimé (${eur(vatDue + est.company, { decimals: false })} au total aujourd'hui).</p>
     </section>
+
+    <section class="card-block">
+      <h3>Échéancier</h3>
+      ${sched.length ? `<table class="table"><thead><tr><th>Date</th><th>Quoi</th><th class="num">Montant</th><th>Compte</th></tr></thead><tbody>
+        ${sched.map((x) => `<tr><td>${formatDate(x.dueDay)}</td><td>${esc(x.label)}</td><td class="num ${x.amount < 0 ? 'good' : 'bad'}">${x.amount < 0 ? 'remb. ' : ''}${eur(Math.abs(x.amount), { decimals: false })}</td><td class="muted small">${x.payer === 'personal' ? 'perso' : 'pro'}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted">Aucune échéance programmée.</p>'}
+      <p class="small muted">La TVA est déclarée chaque trimestre (payée le 20 du mois suivant). L'impôt annuel est calculé au 31 décembre et payé le 30 juin suivant.</p>
+    </section>
+
+    <section class="card-block">
+      <h3>Toi et ta rémunération ${help(srl ? 'Précompte professionnel' : 'Cotisations sociales')}</h3>
+      ${eurInput('draw', state.personal.draw, { type: 'setDraw' }, { min: 0, max: 50000, step: 50, label: srl ? 'Rémunération brute mensuelle (charge de la société)' : 'Prélèvement mensuel (non déductible : ton bénéfice est taxé à l’IPP)' })}
+      ${srl ? `<p class="small">Précompte professionnel estimé : ${eur(monthlyWithholding(state.personal.draw), { decimals: false })}/mois. Taux réduit ISOC (20 %) seulement si ta rémunération annuelle ≥ 50 000 € (ou ≥ au bénéfice) ${help('ISOC')}.</p>` : ''}
+      <p class="small">Cotisations sociales provisoires : <strong>${eur(quarterlySocial(state), { decimals: false })}/trimestre</strong> (base ${eur(provisionalBase(state), { decimals: false })}/an${yearIdx < STARTER_YEARS ? ', minimum « starter »' : ''}). Payées par ${srl ? 'toi (compte perso)' : 'l’entreprise'}.</p>
+      ${!srl && est.regul > 0 ? `<p class="small warn">⚠ Au rythme actuel, régularisation estimée : ${eur(est.regul, { decimals: false })} (payable en septembre de l’année suivante). ${help('Régularisation')}</p>` : ''}
+      ${eurInput('socialbase', state.tax.social.chosenBase, { type: 'setSocialBase' }, { min: 0, max: 500000, step: 1000, label: 'Augmenter volontairement la base de mes provisionnelles (€/an, 0 = automatique)' })}
+      <p class="muted small">Payer plus de provisionnelles maintenant évite le choc de la régularisation plus tard.</p>
+      <p class="small">Compte perso : <strong>${eur(state.personal.cash, { decimals: false })}</strong> · coût de la vie : ${eur(state.personal.livingCost, { decimals: false })}/mois.</p>
+      <div class="btns">${[100_000, 500_000, 1_000_000].map((v) => actBtn(`Apport perso ${eur(v, { decimals: false })}`, { type: 'apport', value: v }, { cls: 'btn-small', disabled: state.personal.cash < v })).join('')}</div>
+    </section>
+
+    ${srl ? `<section class="card-block">
+      <h3>Dividendes ${help('Dividendes')}</h3>
+      <p class="small">Bénéfices reportés distribuables : <strong>${eur(state.tax.reserves, { decimals: false })}</strong>. Précompte mobilier cette année : ${pct(yearIdx <= 0 ? 0.3 : yearIdx === 1 ? 0.2 : 0.15)} ${help('VVPR-bis')}. Tu détiens ${pct(state.ownership.founder)} des parts.</p>
+      <div class="btns">${[0.25, 0.5, 1].map((p) => {
+        const amt = Math.floor(Math.min(state.tax.reserves * p, Math.max(0, state.cash)) / 10_000) * 10_000;
+        return actBtn(`Distribuer ${eur(amt, { decimals: false })}`, { type: 'payDividend', amount: amt }, { cls: 'btn-small', disabled: amt < 10_000 });
+      }).join('')}</div>
+    </section>` : ''}
+
+    <section class="card-block">
+      <h3>Financement ${help('Prêt bancaire')}</h3>
+      <p class="small">La banque te propose aujourd'hui : jusqu'à <strong>${eur(offer.max, { decimals: false })}</strong> à <strong>${(offer.rate * 100).toFixed(2).replace('.', ',')} %</strong>/an.</p>
+      <div class="form-row">
+        <label class="field"><span>Montant (€)</span><input type="number" id="loan-amount" min="1000" step="1000" value="${loanForm.amount / 100}"></label>
+        <label class="field"><span>Durée (mois)</span><select id="loan-months">${[12, 24, 36, 48, 60, 84].map((n) => `<option ${n === loanForm.months ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <button type="button" class="btn btn-small" data-ui="requestLoan">Demander</button>
+      </div>
+      <p class="small muted">Mensualité estimée : ${eur(pay, { decimals: false })} · intérêts déductibles, capital non ${help('Mensualité')}</p>
+      ${state.loans.length ? `<table class="table"><thead><tr><th>Prêt</th><th class="num">Reste</th><th class="num">Mensualité</th><th class="num">Taux</th><th></th></tr></thead><tbody>
+        ${state.loans.map((l) => `<tr><td>${eur(l.principal, { decimals: false })} · ${l.monthsLeft}/${l.months} mois</td><td class="num">${eur(l.remaining, { decimals: false })}</td><td class="num">${eur(l.payment, { decimals: false })}</td><td class="num">${(l.rate * 100).toFixed(2).replace('.', ',')} %</td><td>${actBtn('Rembourser', { type: 'repayLoan', id: l.id }, { cls: 'btn-small', title: 'Remboursement anticipé : indemnité de 3 mois d’intérêts' })}</td></tr>`).join('')}
+      </tbody></table>` : ''}
+      ${srl ? `<h4>Investisseurs ${help('Business angel')}</h4>
+        ${inv ? `<p><strong>${esc(inv.name)}</strong> propose <strong>${eur(inv.amount, { decimals: false })}</strong> contre <strong>${pct(inv.stake)}</strong> des parts (valorisation ${eur(Math.round(inv.amount / inv.stake), { decimals: false })}). Offre valable jusqu'au ${formatDate(inv.expires)}. En échange, ils attendent ≈ 5 %/an de dividendes.</p>
+          <div class="btns">${actBtn('Accepter', { type: 'acceptInvestor' }, { cls: 'btn-small btn-primary' })}${actBtn('Refuser', { type: 'declineInvestor' }, { cls: 'btn-small' })}</div>`
+          : `<p class="small muted">Valorisation estimée de ta société : ${eur(valuation(state), { decimals: false })}.</p>${actBtn('Chercher un investisseur', { type: 'seekInvestor' }, { cls: 'btn-small' })}`}
+        ${state.ownership.investors.length ? `<p class="small">Associés : ${state.ownership.investors.map((i) => `${esc(i.name)} (${pct(i.stake)})`).join(', ')}.</p>` : ''}` : '<p class="small muted">En indépendant, pas d’investisseurs possibles : il faudrait une société.</p>'}
+    </section>
+
     <section class="card-block">
       <h3>Ce mois-ci ${help('Marge')}</h3>
       <table class="table"><tbody>
         <tr><th>Chiffre d'affaires HT</th><td class="num good">${eur(m.revenue, { decimals: false })}</td></tr>
-        <tr><th>Charges</th><td class="num bad">${eur(m.expenses, { decimals: false })}</td></tr>
-        <tr><th>Résultat (avant impôts)</th><td class="num">${eur(m.revenue - m.expenses, { decimals: false })}</td></tr>
+        <tr><th>Charges déductibles</th><td class="num bad">${eur(m.expenses, { decimals: false })}</td></tr>
+        <tr><th>Résultat avant impôts</th><td class="num">${eur(m.revenue - m.expenses, { decimals: false })}</td></tr>
       </tbody></table>
       <details><summary>Sorties de trésorerie par catégorie</summary><table class="table"><tbody>${catRows(m.byCat) || '<tr><td class="muted">Rien encore.</td></tr>'}</tbody></table></details>
     </section>
+
     <section class="card-block">
       <h3>Derniers mois</h3>
       <table class="table"><thead><tr><th>Mois</th><th class="num">CA</th><th class="num">Charges</th><th class="num">Résultat</th><th class="num">Trésorerie</th></tr></thead><tbody>
       ${hist.map((h) => `<tr><td>${formatMonth(h.m)}</td><td class="num">${eur(h.revenue, { decimals: false })}</td><td class="num">${eur(h.expenses, { decimals: false })}</td><td class="num ${h.profit < 0 ? 'bad' : 'good'}">${eur(h.profit, { decimals: false })}</td><td class="num">${eur(h.cash, { decimals: false })}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Pas encore d’historique.</td></tr>'}
       </tbody></table>
+    </section>
+
+    ${state.tax.results.length ? `<section class="card-block">
+      <h3>Bilans annuels</h3>
+      <table class="table"><thead><tr><th>Année</th><th class="num">Résultat</th><th class="num">${srl ? 'ISOC' : 'IPP'}</th><th class="num">Régul. cotis.</th></tr></thead><tbody>
+      ${[...state.tax.results].reverse().slice(0, 8).map((r) => `<tr><td>${r.year}</td><td class="num">${eur(r.operating, { decimals: false })}</td><td class="num">${eur(srl ? r.isoc : r.ipp, { decimals: false })}${srl && !r.reduced && r.taxable > 0 ? ' <span class="warn small">(25 %)</span>' : ''}</td><td class="num">${eur(r.regul || 0, { decimals: false })}</td></tr>`).join('')}
+      </tbody></table></section>` : ''}
+
+    <section class="card-block">
+      <details><summary>⚠ Fiscalité simplifiée — ce que le jeu ne modélise pas exactement</summary>
+      <ul class="small">${SIMPLIFICATIONS.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <p class="small muted">Tous les taux sont dans src/data/fiscalite.js avec leur source et la mention « à vérifier ». Ne pas utiliser pour une vraie déclaration.</p></details>
     </section>`;
+  },
+  mount(el) {
+    // Mémorise la saisie du formulaire de prêt (le panneau est re-rendu régulièrement).
+    const a = el.querySelector('#loan-amount');
+    const mo = el.querySelector('#loan-months');
+    if (a) a.addEventListener('input', () => (loanForm.amount = Math.round(Number(a.value) * 100) || 0));
+    if (mo) mo.addEventListener('change', () => (loanForm.months = Number(mo.value)));
+  },
+  ui(cmd, arg, app) {
+    if (cmd === 'requestLoan') {
+      const a = Math.round(Number(document.getElementById('loan-amount').value) * 100);
+      const mo = Number(document.getElementById('loan-months').value);
+      loanForm = { amount: a, months: mo };
+      app.dispatch({ type: 'requestLoan', amount: a, months: mo });
+    }
   },
 };
 return __exports;

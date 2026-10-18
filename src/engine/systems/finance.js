@@ -62,5 +62,9 @@ export function monthEnd(state) {
   f.overdraftLimit = clamp(Math.round(avg * ECONOMY.overdraftRevenueShare * credibility), ECONOMY.overdraftStart, ECONOMY.overdraftMax);
   if (state.flags.overdraftCut) f.overdraftLimit = ECONOMY.overdraftStart;
   resetMonth(state);
-  if (d.month === 11) resetYear(state);
+}
+
+/** Après le calcul de l'impôt annuel (tax.yearEnd), on remet l'année à zéro. */
+export function yearEnd(state) {
+  resetYear(state);
 }

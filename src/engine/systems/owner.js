@@ -2,24 +2,31 @@
 // La fiscalité personnelle détaillée (IPP, cotisations, précompte) est dans tax.js.
 
 import { pay, personalIn, personalOut } from '../ledger.js';
+import { directorIpp } from '../taxmath.js';
 import { log } from '../log.js';
 
 /**
  * Transfert du compte pro vers le compte perso.
  * Indépendant : simple prélèvement (le bénéfice est taxé à l'IPP de toute façon).
- * SRL : rémunération de dirigeant (charge déductible pour la société) ; le
- * précompte professionnel est géré par tax.js via `state.personal.payslip`.
+ * SRL : rémunération de dirigeant (charge déductible pour la société), avec
+ * précompte professionnel retenu à la source (régularisé en fin d'année par tax.js).
  */
 export function transferToOwner(state, amount, reason = 'draw') {
   if (amount <= 0) return 0;
   if (state.meta.legal === 'srl') {
     pay(state, amount, 'remuneration');
-    state.personal.grossPayYear = (state.personal.grossPayYear || 0) + amount;
-    state.personal.pendingGross = (state.personal.pendingGross || 0) + amount;
+    personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
+    // Précompte professionnel retenu à la source (taux moyen estimé sur l'année).
+    const annual = Math.max(amount, state.personal.draw) * 12;
+    const rate = annual > 0 ? directorIpp(annual) / annual : 0;
+    const w = Math.round(amount * rate);
+    personalOut(state, w, 'precompte');
+    state.tax.year.precompte += w;
+    state.tax.year.directorPay += amount;
   } else {
     pay(state, amount, 'prelevement');
+    personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
   }
-  personalIn(state, amount, reason === 'draw' ? 'revenu' : 'renflouement');
   return amount;
 }
 
@@ -36,11 +43,14 @@ export function monthEnd(state) {
 export function endOfMonthLiving(state) {
   const p = state.personal;
   personalOut(state, p.livingCost, 'vie');
-  if (p.cash < 0) {
+  let taken = 0;
+  // Plusieurs passes : en SRL, le précompte retenu réduit le net versé.
+  for (let i = 0; i < 4 && p.cash < 0; i++) {
     const need = -p.cash;
     transferToOwner(state, need, 'emergency');
-    log(state, 'bad', `Ton compte perso était à sec : ${(need / 100).toFixed(0)} € pris sur l'entreprise pour vivre.`);
+    taken += need;
   }
+  if (taken > 0) log(state, 'bad', `Ton compte perso était à sec : ${(taken / 100).toFixed(0)} € pris sur l'entreprise pour vivre.`);
   p.history.push({ cash: p.cash, ...p.month });
   if (p.history.length > 240) p.history.shift();
   p.month = {};
