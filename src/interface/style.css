@@ -48,6 +48,19 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin: 0 3px; b
 #observation b { font-family: var(--serif); font-weight: 400; font-size: 16px; display: block; }
 #observation .jauge { width: 150px; margin: 5px 0 0 auto; }
 #observation .jauge i { background: var(--ocre); }
+#objectif { position: absolute; left: 22px; top: 180px; width: 240px; text-align: left; font-size: 12px; line-height: 1.4; transition: top 0.25s; }
+#hud.carte-grande #objectif { top: calc(min(460px, 62vh) + 30px); }
+#objectif small { display: block; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ocre); }
+#objectif b { display: block; font-family: var(--serif); font-weight: 400; font-size: 15.5px; }
+#objectif span { opacity: 0.85; }
+#objectif .jauge { margin: 5px 0 0; width: 130px; height: 3px; }
+#objectif .jauge i { background: var(--ocre); }
+#cible { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); text-align: center; font-size: 11.5px; letter-spacing: 0.05em; min-width: 150px; }
+#cible b { display: block; font-family: var(--serif); font-weight: 400; font-size: 15px; }
+#cible .jauge { width: 130px; margin: 4px auto 0; height: 3px; }
+#cible .jauge i { background: #d8d2c0; }
+#cible.danger b { color: #f0906c; } #cible.danger .jauge i { background: #e2734f; }
+#hud.carte-grande #cible { opacity: 0; }
 #notes { position: absolute; right: 26px; bottom: 150px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .note { padding: 7px 13px; background: var(--fond); border-left: 2px solid var(--ocre); font-size: 13px; max-width: 360px; animation: entree 0.35s ease-out; transition: opacity 0.6s; text-shadow: none; }
 @keyframes entree { from { opacity: 0; transform: translateX(14px); } }

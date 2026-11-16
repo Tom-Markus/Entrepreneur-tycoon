@@ -46,7 +46,7 @@ export class Terrain {
     this._creerTextures(texBruit);
     this._creerMateriau();
     this._preparerChunks();
-    this.distanceVue = 600;
+    this.distanceVue = 600; this.detail = 1;
   }
 
   // ------------------------------------------------------------ GÉNÉRATION --
@@ -311,7 +311,7 @@ export class Terrain {
   }
 
   reglerQualite(q) {
-    this.distanceVue = q.distanceVue;
+    this.distanceVue = q.distanceVue; this.detail = q.detailTerrain || 1;
     const d = {};
     if (q.normalesTerrain) d.NORMALES_SOL = 1;
     if (q.caustiques) d.CAUSTIQUES = 1;
@@ -402,7 +402,8 @@ export class Terrain {
     let budget = 2;   // au plus 2 constructions par image, pour éviter les à-coups
     for (const c of this.chunks) {
       const d = Math.hypot(c.x - cam.x, c.z - cam.z);
-      let lod = d < 230 ? 0 : d < 470 ? 1 : d < 820 ? 2 : 3;
+      const k = this.detail;      // facteur de qualité : relief fin plus loin en Ultra, plus près en Bas
+      let lod = d < 230 * k ? 0 : d < 470 * k ? 1 : d < 820 * k ? 2 : 3;
       if (d > this.distanceVue + 140) lod = -1;
       if (lod === c.lod) continue;
       if (lod === -1) {

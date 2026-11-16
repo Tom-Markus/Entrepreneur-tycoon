@@ -18,7 +18,7 @@ import { Entrees } from './noyau/entrees.js';
 import { Sauvegarde } from './noyau/sauvegarde.js';
 import { Qualite } from './noyau/qualite.js';
 import { creerTextureBruit, creerNormaleEau, creerTexturesPeau, creerAtlasFeuillage, creerTextureEmpreinte, creerTextureParticule } from './rendu/textures.js';
-import { Ombres } from './rendu/ombres.js';
+import { Ombres, OmbresSimples } from './rendu/ombres.js';
 import { Post } from './rendu/post.js';
 import { Terrain, LIEUX } from './monde/terrain.js';
 import { Ciel } from './monde/ciel.js';
@@ -35,6 +35,7 @@ import { CameraJeu } from './joueur/camera.js';
 import { Odorat } from './joueur/odorat.js';
 import { ModePhoto } from './joueur/photo.js';
 import { Carnet } from './science/carnet.js';
+import { Progression } from './joueur/progression.js';
 import { Audio } from './audio/audio.js';
 import { Interface } from './interface/interface.js';
 
@@ -83,7 +84,9 @@ async function demarrer() {
   jeu.eau = new Eau(scene, jeu.terrain, texBruit, creerNormaleEau());
   ui.chargement('Forêts de conifères, fougères et cycadales…'); await attendre();
   jeu.vegetation = new Vegetation(scene, jeu.terrain, jeu.ombres, atlas);
-  jeu.particules = new Particules(scene, creerTextureParticule());
+  const texParticule = creerTextureParticule();
+  jeu.particules = new Particules(scene, texParticule);
+  jeu.ombresSimples = new OmbresSimples(scene, jeu.terrain, texParticule);
   jeu.ambiance = new Ambiance(scene);
   jeu.empreintes = new Empreintes(scene, jeu.terrain, creerTextureEmpreinte());
   ui.chargement('Faune du Jurassique…'); await attendre();
@@ -93,6 +96,7 @@ async function demarrer() {
   jeu.joueur = new Joueur(jeu);
   jeu.ecosysteme = new Ecosysteme(jeu);
   jeu.faune = new Faune(jeu);
+  jeu.progression = new Progression(jeu);
   jeu.odorat = new Odorat(jeu);
   jeu.photo = new ModePhoto(jeu);
   jeu.qualite = new Qualite(jeu);
@@ -182,7 +186,7 @@ jeu.sauvegarder = () => {
   Sauvegarde.ecrire(jeu.emplacement, {
     version: 1,
     resume: { stade: j.infosStade.nom, jour: jeu.ciel.jourNumero, fiches: jeu.carnet.nbSections, date: Date.now() },
-    joueur: j.exporter(), carnet: jeu.carnet.exporter(), heure: jeu.ciel.heure, jourNumero: jeu.ciel.jourNumero, meteo: jeu.meteo.type,
+    joueur: j.exporter(), carnet: jeu.carnet.exporter(), progression: jeu.progression.exporter(), heure: jeu.ciel.heure, jourNumero: jeu.ciel.jourNumero, meteo: jeu.meteo.type,
   });
 };
 
@@ -196,7 +200,7 @@ function entrerEnJeu() {
 
 jeu.nouvellePartie = (emplacement) => {
   jeu.emplacement = emplacement;
-  jeu.joueur.reinitialiser(); jeu.carnet.reinitialiser();
+  jeu.joueur.reinitialiser(); jeu.carnet.reinitialiser(); jeu.progression.reinitialiser();
   jeu.ciel.heure = CONFIG.temps.heureDepart; jeu.ciel.jourNumero = 1; jeu.meteo.forcer('clair');
   entrerEnJeu();
   jeu.ui.annoncer('Jurassique supérieur', 'Il y a environ 150 millions d\'années');
@@ -208,7 +212,7 @@ jeu.chargerPartie = (emplacement) => {
   const d = Sauvegarde.lire(emplacement);
   if (!d) return;
   jeu.emplacement = emplacement;
-  jeu.joueur.importer(d.joueur); jeu.carnet.importer(d.carnet || {});
+  jeu.joueur.importer(d.joueur); jeu.carnet.importer(d.carnet || {}); jeu.progression.importer(d.progression);
   jeu.ciel.heure = d.heure || CONFIG.temps.heureDepart; jeu.ciel.jourNumero = d.jourNumero || 1; jeu.meteo.forcer(d.meteo || 'clair');
   entrerEnJeu();
 };
@@ -272,6 +276,7 @@ function boucle(dtReel) {
     jeu.meteo.mettreAJour(dt, dtReel, cam);
     if (jeu.etat === 'jeu') {
       jeu.carnet.mettreAJour(dt, cam);
+      jeu.progression.mettreAJour(dt);
       jeu.tSauvegarde += dt;
       if (jeu.tSauvegarde > CONFIG.sauvegarde.intervalleAuto) { jeu.tSauvegarde = 0; jeu.sauvegarder(); }
     }
@@ -303,6 +308,8 @@ function boucle(dtReel) {
   const humidite = Math.max(0, 1 - Math.max(0, jeu.terrain.hauteur(jc.x, jc.z)) / 4);
   jeu.ambiance.mettreAJour(jeu.tempsReel, hEcran, jeu.ciel, jeu.meteo, humidite);
   jeu.empreintes.mettreAJour(jeu.temps);
+  jeu.ecosysteme.visibles[0] = jc;
+  jeu.ombresSimples.mettreAJour(jeu.ecosysteme.visibles, jeu.ciel.jour);
   jeu.odorat.mettreAJour(dtReel, jeu.tempsReel, innerHeight * (jeu.renderer.getPixelRatio()));
   jeu.audio.mettreAJour(dtReel, cam, { vent: jeu.meteo.vent, pluie: jeu.meteo.pluie, jour: jeu.ciel.jour, eau: humidite * humidite, foret: jeu.vegetation.densiteArbres(jc.x, jc.z) });
 

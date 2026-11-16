@@ -105,7 +105,7 @@ export class Eau {
   }
 
   reglerQualite(q) {
-    this.reflets = q.reflets; this.eco = !!q.refletsEco; this.imageReflet = 0;
+    this.reflets = q.reflets; this.eco = !!q.refletsEco; this.pleins = !!q.refletsPleins; this.imageReflet = 0;
     this.materiau.defines = q.reflets ? { REFLETS: 1 } : {};
     this.materiau.needsUpdate = true;
     if (q.reflets && !this.cible) {
@@ -135,7 +135,7 @@ export class Eau {
     if (!this.reflets || camera.position.y < 0.05) return;
     // mode économique : image trois fois plus petite, recalculée une image sur trois
     if (this.eco && this.imageReflet++ % 3 !== 0) return;
-    const div = this.eco ? 3 : 2;
+    const div = this.eco ? 3 : this.pleins ? 1 : 2;
     const l = Math.max(64, Math.floor(largeur / div)), h = Math.max(64, Math.floor(hauteur / div));
     if (this.cible.width !== l || this.cible.height !== h) this.cible.setSize(l, h);
     const cam = this.camReflet, n = this._v.set(0, 1, 0);

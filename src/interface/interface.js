@@ -5,6 +5,7 @@ import { CONFIG, NOMS_ACTIONS, TOUCHES_DEFAUT } from '../config.js';
 import { Sauvegarde } from '../noyau/sauvegarde.js';
 import { FICHES, FLORE_FICHES, OBSERVATIONS, SECTIONS } from '../science/fiches.js';
 import { COMPETENCES } from '../joueur/joueur.js';
+import { OBJECTIFS } from '../joueur/progression.js';
 import { FILTRES } from '../joueur/photo.js';
 import { NOMS_BIOMES, BIOME } from '../monde/terrain.js';
 
@@ -25,6 +26,8 @@ export class Interface {
           ${['Santé', 'Faim', 'Soif', 'Énergie'].map((n) => `<div class="besoin"><span>${n}</span><div class="jauge"><i></i></div></div>`).join('')}
           <div id="souffle"><i></i></div>
         </div>
+        <div id="objectif" class="cache"><small>Objectif</small><b></b><span></span><div class="jauge"><i></i></div></div>
+        <div id="cible" class="cache"><b></b><span></span><div class="jauge"><i></i></div></div>
         <div id="invite" class="cache"></div>
         <div id="notes"></div>
         <div id="annonce"><b></b><span></span></div>
@@ -149,8 +152,8 @@ export class Interface {
     const case_ = (id, v) => `<select data-r="${id}"><option value="1" ${v ? 'selected' : ''}>Oui</option><option value="0" ${v ? '' : 'selected'}>Non</option></select>`;
     o.innerHTML = `<div class="panneau"><h2>Options</h2>
       <h3>Graphismes</h3>
-      <div class="ligne"><div>Qualité<small>« Moyen » vise 30 images/s sur un Chromebook.</small></div>
-        <select data-r="qualite">${Q.ordre.map((n) => `<option value="${n}" ${n === jeu.qualite.niveau ? 'selected' : ''}>${Q.niveaux[n].nom}</option>`).join('')}</select></div>
+      <div class="ligne"><div>Qualité<small>« Bas » est prévu pour un Chromebook. « Ultra » pousse tout au maximum : réservé aux PC puissants.</small></div>
+        <select data-r="qualite">${Q.ordre.map((n) => `<option value="${n}" ${n === jeu.qualite.niveau ? 'selected' : ''}>${Q.niveaux[n].nom} — ${Q.niveaux[n].description}</option>`).join('')}</select></div>
       <div class="ligne"><div>Résolution dynamique<small>Réduit la netteté quand les images/s chutent.</small></div>${case_('dynamique', jeu.qualite.dynamique)}</div>
       <div class="ligne"><div>Afficher les images par seconde</div>${case_('fps', r.fps)}</div>
       <div class="ligne"><div>Test de performance<small>Choisit automatiquement le niveau adapté.</small></div><button class="bouton petit" data-a="mesurer">Relancer le test (3 s)</button></div>
@@ -191,7 +194,7 @@ export class Interface {
 
   _dessinerCarnet() {
     const jeu = this.jeu, c = jeu.carnet, k = $('#carnet'), j = jeu.joueur;
-    const onglets = [['faune', 'Faune'], ['flore', 'Flore'], ['observations', `Observations ${c.nbValides}/${OBSERVATIONS.length}`], ['competences', `Compétences${j.points ? ' (' + j.points + ')' : ''}`], ['carte', 'Carte']];
+    const onglets = [['faune', 'Faune'], ['flore', 'Flore'], ['observations', `Observations ${c.nbValides}/${OBSERVATIONS.length}`], ['competences', `Compétences${j.points ? ' (' + j.points + ')' : ''}`], ['parcours', 'Parcours'], ['carte', 'Carte']];
     let page = '';
     if (this.ongletCarnet === 'faune') {
       const f = FICHES[this.ficheChoisie], n = c.sections[this.ficheChoisie] || 0;
@@ -210,7 +213,13 @@ export class Interface {
       page = `<p class="discret">Points disponibles : <b>${j.points}</b>. Ils se gagnent en documentant des comportements et à chaque nouveau stade de croissance.</p>`
         + COMPETENCES.map((q) => `<div class="comp"><div><b>${q.nom}</b><small>${q.effet}</small></div>${j.a(q.id) ? '<span style="color:var(--ocre)">Acquise</span>' : `<button class="bouton petit" data-comp="${q.id}" ${j.points ? '' : 'disabled'}>Apprendre</button>`}</div>`).join('')
         + `<h3>Votre Allosaurus</h3><p class="discret">Stade : ${j.infosStade.nom} · longueur ≈ ${(8.5 * j.creature.echelle).toFixed(1)} m · masse ≈ ${Math.round(j.masse)} kg · marques de territoire : ${j.marques.length} · nid : ${j.nid ? 'établi' : 'aucun'}</p>`;
-    } else page = '<canvas id="carte" width="512" height="512"></canvas><p class="discret">Flèche blanche : vous · maison : nid · cercles : territoire marqué. Vert sombre : forêt vierge · vert clair : forêt de ginkgos · vert bleuté : conifères · beige : lande et plage. Le nord est en haut.</p>';
+    } else if (this.ongletCarnet === 'parcours') {
+      const pr = jeu.progression, st = pr.stats, cour = pr.courant;
+      page = '<h3 style="margin-top:0">Objectifs</h3>' + OBJECTIFS.map((o) => { const fait = pr.faits[o.id], actif = cour === o;
+        return `<div class="obs ${fait ? 'faite' : ''}" style="${!fait && !actif ? 'opacity:0.45' : ''}"><span class="coche">${fait ? '✔' : actif ? '➤' : '○'}</span><div><b>${o.titre}</b><small>${o.texte}${actif && o.but > 1 ? ' (' + Math.min(o.but, o.valeur(jeu)) + '/' + o.but + ')' : ''}</small></div></div>`; }).join('')
+        + `<h3>Lieux remarquables ${pr.nbLieux}/${pr.lieux.length}</h3><p class="discret">${pr.lieux.map((l) => (pr.decouverts[l.id] ? l.nom : '· · ·')).join(' &nbsp;—&nbsp; ')}</p>`
+        + `<h3>Statistiques</h3><p class="discret">Jours vécus : ${st.jours} · distance parcourue : ${(st.distance / 1000).toFixed(1)} km · proies abattues : ${st.proies} · attaques surprises : ${st.surprises} · poissons attrapés : ${st.poissons} · prédateurs repoussés : ${st.predateurs} · petits arbres renversés : ${st.arbres}</p>`;
+    } else page = '<canvas id="carte" width="512" height="512"></canvas><p class="discret">Flèche blanche : vous · maison : nid · cercles : territoire marqué · losanges : lieux remarquables (« ? » avant leur découverte). Vert sombre : forêt vierge · vert clair : forêt de ginkgos · vert bleuté : conifères · beige : lande et plage. Le nord est en haut.</p>';
     k.innerHTML = `<div class="panneau"><h2>Carnet de bord</h2><div class="onglets">${onglets.map((o) => `<button class="onglet ${o[0] === this.ongletCarnet ? 'actif' : ''}" data-onglet="${o[0]}">${o[1]}</button>`).join('')}</div>
       <div class="pages">${page}</div><div class="pied"><button class="bouton petit" data-a="fermer">Fermer (${jeu.entrees.nomAction('carnet')})</button></div></div>`;
     k.classList.remove('cache');
@@ -268,6 +277,14 @@ export class Interface {
       }
       g.fillStyle = '#62e04e';
       for (const k of jeu.ecosysteme.carcasses) if (k.viande > 0 && Math.hypot(k.x - c.x, k.z - c.z) < portee * 1.6) { g.beginPath(); g.arc(X(k.x), Z(k.z), 3.5, 0, 6.3); g.fill(); }
+    }
+    // lieux remarquables : losange une fois découverts, « ? » sinon (sur la carte de l'île seulement)
+    g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = '#000';
+    for (const l of jeu.progression.lieux) {
+      const px = X(l.x), pz = Z(l.z), vu = jeu.progression.decouverts[l.id];
+      if (px < 0 || pz < 0 || px > L || pz > L || (!vu && etendue < 1000)) continue;
+      g.font = 'bold ' + Math.round(L / 26) + 'px sans-serif'; g.fillStyle = vu ? '#d9b56a' : 'rgba(241,234,217,0.75)';
+      g.strokeText(vu ? '◆' : '?', px, pz + 5); g.fillText(vu ? '◆' : '?', px, pz + 5);
     }
     g.fillStyle = '#f1ead9'; g.strokeStyle = '#000'; g.lineWidth = 3; g.font = 'bold 22px sans-serif'; g.textAlign = 'center';
     if (j.nid) { g.strokeText('⌂', X(j.nid.x), Z(j.nid.z) + 7); g.fillText('⌂', X(j.nid.x), Z(j.nid.z) + 7); }
@@ -361,6 +378,29 @@ export class Interface {
     e.querySelector('small').innerHTML = `Jour ${jeu.ciel.jourNumero} · ${jeu.ciel.texteHeure()} · ${jeu.meteo.nom}<br>${NOMS_BIOMES[jeu.terrain.biome(c.x, c.z)]}${j.enTerritoire ? ' · votre territoire' : ''}${j.repos ? ' · repos' : ''}`;
     const inv = $('#invite'), ctx = j.contexte;
     if (ctx && jeu.etat === 'jeu' && !j.repos) { inv.innerHTML = ctx.type === 'sale' ? ctx.texte : `<kbd>${jeu.entrees.nomAction('interagir')}</kbd> ${ctx.texte} <span class="discret">(maintenir)</span>`; inv.classList.remove('cache'); } else inv.classList.add('cache');
+    // objectif en cours
+    const ob = $('#objectif'), cour = jeu.progression.courant;
+    if (cour && jeu.etat === 'jeu') {
+      ob.classList.remove('cache'); ob.querySelector('b').textContent = cour.titre;
+      const val = Math.min(cour.but, cour.valeur(jeu));
+      ob.querySelector('span').textContent = cour.texte + (cour.but > 1 ? ' (' + val + '/' + cour.but + ')' : '');
+      ob.querySelector('.jauge i').style.transform = `scaleX(${(val / cour.but).toFixed(2)})`;
+    } else ob.classList.add('cache');
+    // animal visé : le plus proche dans l'axe de la caméra
+    const ci = $('#cible'); let vise = null, dMin = 45;
+    const ax = jeu.cameraJeu.avantX, az = jeu.cameraJeu.avantZ;
+    for (const a of jeu.ecosysteme.animaux) {
+      if (!a.vivant || a.distJoueur > dMin + a.def.longueur) continue;
+      const dx = a.x - c.x, dz = a.z - c.z, d = Math.hypot(dx, dz) || 1;
+      if ((dx * ax + dz * az) / d > 0.9 && d - a.def.longueur * 0.4 < dMin) { dMin = d; vise = a; }
+    }
+    if (vise && jeu.etat === 'jeu') {
+      const etats = { fuit: 'en fuite', alerte: 'en alerte', defend: 'sur la défensive', menace: 'menaçant', chasse: 'en chasse', dort: 'endormi', boit: 'boit', broute: 'broute', couve: 'couve', charogne: 'mange' };
+      ci.classList.remove('cache'); ci.querySelector('b').textContent = vise.def.nom;
+      ci.querySelector('span').textContent = (etats[vise.comportement] || 'calme') + ' · ' + Math.round(vise.distJoueur) + ' m';
+      ci.classList.toggle('danger', vise.comportement === 'menace' || vise.comportement === 'defend');
+      ci.querySelector('.jauge i').style.transform = `scaleX(${Math.max(0, vise.sante / vise.def.sante).toFixed(2)})`;
+    } else ci.classList.add('cache');
     const o = $('#observation'), enc = jeu.carnet.enCours;
     if (enc) { o.classList.remove('cache'); o.querySelector('b').textContent = enc.espece; o.querySelector('span').textContent = enc.titre; o.querySelector('.jauge i').style.transform = `scaleX(${enc.ratio.toFixed(2)})`; } else o.classList.add('cache');
     const f = $('#fps');

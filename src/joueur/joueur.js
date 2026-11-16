@@ -219,9 +219,12 @@ export class Joueur {
         c.declencher('esquive', J.dureeEsquive, cote || 1);
         jeu.particules.emettre('poussiere', c.x, c.y + 0.1, c.z, 8, s * 1.5);
       } else if (e.vientDe('morsure') && this.attente <= 0) {
+        // mordre en pleine course = charge : un bond en avant, des dégâts accrus, mais du souffle en moins
+        const charge = c.vitesse > st.trot * 1.15 * Math.sqrt(s / st.echelleMax) && this.souffle > 8;
+        if (charge) { const fxC = Math.sin(c.cap), fzC = Math.cos(c.cap); this.exVx += fxC * 5.5; this.exVz += fzC * 5.5; this.souffle -= 8; }
         c.declencher('morsure', J.dureeMorsure);
         this.attente = J.dureeMorsure + J.reposEntreAttaques;
-        this.impact = { type: 'morsure', t: J.dureeMorsure * 0.48 };
+        this.impact = { type: 'morsure', t: J.dureeMorsure * 0.48, charge };
       } else if (e.vientDe('queue') && this.attente <= 0) {
         const sens = Math.random() < 0.5 ? 1 : -1;
         c.declencher('queue', J.dureeQueue, sens);
@@ -237,7 +240,7 @@ export class Joueur {
     }
     if (this.impact) {
       this.impact.t -= dtReel;
-      if (this.impact.t <= 0) { this._frapper(this.impact.type); this.impact = null; }
+      if (this.impact.t <= 0) { this._frapper(this.impact.type, this.impact.charge); this.impact = null; }
     }
 
     // ------------------------------------------------------- déplacement ---
@@ -246,7 +249,7 @@ export class Joueur {
     const depX = (fx * c.vitesse + this.exVx) * dt, depZ = (fz * c.vitesse + this.exVz) * dt;
     this._deplacer(depX, depZ, T);
     jeu.vegetation.resoudreCollision(c, def(c).rayon * s, this.masse, Math.abs(c.vitesse), fx, fz);
-    if (jeu.vegetation.dernierRenverse) { jeu.vegetation.dernierRenverse = null; jeu.audio.craquement(); jeu.cameraJeu.secouer(0.15); c.vitesse *= 0.8; }
+    if (jeu.vegetation.dernierRenverse) { jeu.vegetation.dernierRenverse = null; jeu.progression.stats.arbres++; jeu.audio.craquement(); jeu.cameraJeu.secouer(0.15); c.vitesse *= 0.8; }
     jeu.ecosysteme.collisionsJoueur(c, def(c).rayon * s, this.masse);
     // limite du monde : l'océan
     const dCentre = Math.hypot(c.x, c.z);
@@ -321,7 +324,7 @@ export class Joueur {
       c.teteBas = true; c.mache = true;
       if (c.baisse > 0.55 || this.contexte.type === 'manger') {
         if (this.contexte.type === 'boire') {
-          this.soif = Math.min(100, this.soif + J.boireParSeconde * dt);
+          this.soif = Math.min(100, this.soif + J.boireParSeconde * dt); jeu.progression.stats.aBu = true;
           if (Math.random() < dt * 1.5) jeu.eau.ajouterOnde(this._tete.x, this._tete.z, 0.25, jeu.tempsReel);
           jeu.carnet.signalerAction('boire');
         } else {
@@ -334,18 +337,18 @@ export class Joueur {
     } else { this.interaction = null; c.teteBas = false; c.mache = false; }
   }
 
-  _frapper(type) {
+  _frapper(type, charge = false) {
     const jeu = this.jeu, c = this.creature, st = this.infosStade, s = c.echelle;
     const k = Math.pow(s / st.echelleMax, 2);
     if (type === 'morsure') {
       c.positionTete(this._tete);
-      const degats = st.morsure * k * (this.a('machoires') ? 1.3 : 1);
+      const degats = st.morsure * k * (this.a('machoires') ? 1.3 : 1) * (charge ? 1.5 : 1);
       const touche = jeu.ecosysteme.frapper(this._tete.x, this._tete.z, J.porteeMorsure * s, degats, c, 'morsure');
       jeu.audio.claquement(s);
       if (!touche && c.nage === false && jeu.terrain.hauteur(this._tete.x, this._tete.z) < -0.15) {
         // pêche : un banc de poissons à portée de mâchoires ?
         if (jeu.ecosysteme.pecher(this._tete.x, this._tete.z, 2.5 * s + 1)) {
-          this.faim = Math.min(100, this.faim + 9 / Math.max(0.4, s)); this.grandir(3);
+          this.faim = Math.min(100, this.faim + 9 / Math.max(0.4, s)); this.grandir(3); jeu.progression.stats.poissons++;
           jeu.ui.notifier('Poisson attrapé'); jeu.particules.emettre('eclaboussure', this._tete.x, 0.1, this._tete.z, 10, 1);
           jeu.audio.plouf(0.6);
         }

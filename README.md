@@ -67,6 +67,9 @@ Les touches sont repérées par leur **position** sur le clavier : ZQSD sur un c
 - **Carnet** (J) : gardez un animal à l'écran pour débloquer sa fiche section par section ; documentez les comportements (abreuvage, nidification, chasse…). Une photo valide la fiche d'un coup.
 - **Croissance** : manger et observer fait grandir votre Allosaurus (juvénile → subadulte → adulte). Les observations donnent des points de compétence (onglet « Compétences » du carnet).
 - **Territoire et nid** : T pose une marque (vous récupérez votre souffle plus vite dans votre territoire), N établit le nid (point de réveil, meilleur repos).
+- **Objectifs** : un objectif à la fois s'affiche sous la mini-carte (boire, découvrir des espèces, pêcher, chasser, établir un nid…). Ils guident sans rien imposer ; la liste complète est dans le carnet, onglet « Parcours ».
+- **Lieux remarquables** : neuf endroits de l'île sont à découvrir (points d'interrogation sur la grande carte).
+- **Chasse** : approchez en marche lente — une proie qui ne vous a pas repéré subit le double des dégâts (attaque surprise). Mordre en pleine course déclenche une charge (bond en avant, dégâts ×1,5, souffle en moins). L'animal visé affiche son nom, son état et sa santé en haut de l'écran.
 - **Mini-carte** (en haut à gauche) : elle montre les 340 m autour de vous ; M l'agrandit pour afficher toute l'île. Avec la vision olfactive active, les odeurs détectées y apparaissent en points colorés.
 - **Biomes** : forêt vierge (jungle dense de podocarpes, fougères arborescentes et osmondes), forêt de ginkgos, forêt de conifères, plaine à fougères, lande à cycadales, marais, rives, plage, falaises. Ils dépendent de l'humidité et de l'altitude et forment une mosaïque sur toute l'île.
 - **Sauvegarde** : automatique toutes les minutes, 3 emplacements, stockée dans le navigateur.
@@ -75,12 +78,14 @@ Les touches sont repérées par leur **position** sur le clavier : ZQSD sur un c
 
 Au premier lancement, un test de 3 secondes choisit le niveau adapté à votre appareil. Vous pouvez le changer dans **Options → Graphismes**, sans redémarrer.
 
-| Niveau | Ce qui est activé |
-|---|---|
-| **Bas** | Résolution 60 %, pas d'ombres, végétation clairsemée, vue à 420 m |
-| **Moyen** | Résolution 80 %, anticrénelage ×2, ombres à 2 cascades, halo lumineux, rayons du soleil, reliefs du sol, reflets économiques sur l'eau, vue à 620 m. Les arbres détaillés s'arrêtent à 70–90 m ; au-delà, ils sont remplacés par des silhouettes à 4 triangles |
-| **Élevé** | Pleine résolution, anticrénelage ×4, ombres à 3 cascades, occlusion ambiante, profondeur de champ, reflets réels sur l'eau |
-| **Ultra** | Comme Élevé, ombres 2048, nuages plus fins, végétation maximale, vue à 1100 m |
+| Niveau | Pour quelle machine | Ce qui est activé |
+|---|---|---|
+| **Bas** | Chromebook, ordinateur modeste | Résolution 55 %, pas d'ombres portées (un disque sombre sous chaque animal à la place), végétation à 20 %, arbres détaillés jusqu'à 40–60 m, vue à 380 m |
+| **Moyen** | Portable récent sans carte graphique dédiée | Résolution 80 %, anticrénelage ×2, ombres à 2 cascades, halo lumineux, rayons du soleil, reliefs du sol, reflets allégés, végétation à 36 %, vue à 620 m |
+| **Élevé** | Ordinateur avec carte graphique | Pleine résolution, anticrénelage ×4, ombres à 3 cascades, occlusion ambiante, profondeur de champ, reflets réels, netteté renforcée, végétation à 60 %, vue à 900 m |
+| **Ultra** | **PC puissant uniquement** | Tout au maximum : végétation à 100 %, arbres détaillés jusqu'à 250 m, 4 cascades d'ombres en 2048, même les fougères projettent une ombre, occlusion ambiante fine, reflets en pleine résolution, relief fin deux fois plus loin, vue à 1500 m |
+
+![Niveau Ultra](docs/ultra.png)
 
 La **résolution dynamique** (activée par défaut) baisse légèrement la netteté quand le jeu passe sous 30 images/s. L'option « Afficher les images par seconde » montre aussi le nombre de commandes de dessin et de triangles.
 
@@ -108,13 +113,14 @@ Techniques utilisées : instancing et deux niveaux de détail pour la végétati
 
 - Le jeu a été lancé et piloté automatiquement dans Chromium (Playwright) : écran-titre, nouvelle partie, déplacement, course, rugissement, morsure, esquive, vision olfactive, marquage, nid, carnet (tous les onglets), mode photo avec téléchargement du PNG, repos, caméra cinématique, pause, options, changement de qualité à chaud, sauvegarde puis « Continuer ». **Aucune erreur dans la console** aux quatre niveaux de qualité (Bas, Moyen, Élevé, Ultra).
 - L'IA a tourné 7,5 minutes simulées avec événements forcés (attaques, morts, fuites, réapparitions) : aucune exception, aucune position invalide. La logique de jeu (joueur + IA + faune + carnet) coûte environ **0,25 ms par image**.
-- Charge de rendu mesurée en forêt vierge (le cas le plus lourd) : Bas ≈ 60 commandes de dessin / 200 000 triangles ; Moyen ≈ 80 à 180 / 300 000 à 650 000 selon l'endroit ; Élevé ≈ 290 / 1 500 000 ; Ultra ≈ 380 / 1 850 000. Ces deux derniers niveaux visent les ordinateurs dotés d'une vraie carte graphique.
+- Charge de rendu mesurée en forêt vierge (le cas le plus lourd) : Bas ≈ 65 commandes de dessin / 200 000 triangles ; Moyen ≈ 80 à 180 / 300 000 à 650 000 selon l'endroit ; Ultra ≈ 450 / 2 900 000. Élevé n'a pas été remesuré depuis le dernier réglage (il se situe entre Moyen et Ultra).
 - Tournée automatique de tous les biomes, galerie de profil des sept espèces de dinosaures, et test des quatre niveaux de qualité sous l'orage et de nuit : aucune erreur.
 
 ## Limites connues
 
 Ces points sont approximatifs ou incomplets ; ils sont listés ici plutôt que cachés.
 
+- **« Ultra » n'a été testé qu'en rendu logiciel** : il fonctionne sans erreur, mais je n'ai pas pu mesurer sa fluidité sur un vrai PC de jeu. Près de 3 millions de triangles par image en forêt : s'il saccade, « Élevé » reste très proche visuellement.
 - **Performances non vérifiées sur un vrai Chromebook.** Les tests ont été faits sur une machine **sans carte graphique** (rendu logiciel, 10 à 27 images/s en « Bas »), ce qui ne permet pas de conclure pour un Chromebook HP. La cible de 30 images/s en « Moyen » est donc un **objectif de conception, pas une mesure**. Si c'est trop lent : passez en « Bas » (le benchmark le fera de lui-même).
 - **Style visuel** : les modèles sont procéduraux et donc stylisés. Les arbres sont faits de plans texturés croisés : de très près, on voit que le feuillage est plat. C'est cohérent et lisible, mais ce n'est pas du photoréalisme.
 - **Arbres lointains** : au-delà de la distance de détail, chaque grand arbre devient deux panneaux croisés ; le changement peut se remarquer en avançant.

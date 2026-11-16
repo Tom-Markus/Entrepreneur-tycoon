@@ -36,7 +36,7 @@ void main() {
 const FRAG_RAYONS = /* glsl */`
 varying vec2 vUv; uniform sampler2D tProfondeur; uniform vec2 uSoleilUV; uniform float uAspect;
 void main() {
-  const int N = 20;
+  const int N = NB_RAYONS;
   vec2 delta = (vUv - uSoleilUV) / float(N) * 0.92;
   vec2 uv = vUv; float acc = 0.0, poids = 1.0, total = 0.0;
   for (int i = 0; i < N; i++) {
@@ -57,15 +57,15 @@ void main() {
   float d0 = profLineaire(brut);
   float rayon = 0.9 * uEchelleProj / d0;            // rayon d'environ 0,9 m, en coordonnées d'écran
   float a0 = ign(gl_FragCoord.xy) * 6.2831853, occ = 0.0;
-  for (int i = 0; i < 4; i++) {
-    float a = a0 + float(i) * 0.7853981;
-    vec2 o = vec2(cos(a) * uTexel.x / uTexel.y, sin(a)) * rayon * (0.35 + 0.65 * float(i + 1) / 4.0);
+  for (int i = 0; i < PAIRES; i++) {
+    float a = a0 + float(i) * 3.14159265 / float(PAIRES);
+    vec2 o = vec2(cos(a) * uTexel.x / uTexel.y, sin(a)) * rayon * (0.35 + 0.65 * float(i + 1) / float(PAIRES));
     // paire symétrique : sur une surface plane la moyenne vaut d0 → aucune occlusion parasite
     float moy = (profLineaire(texture2D(tProfondeur, vUv + o).r) + profLineaire(texture2D(tProfondeur, vUv - o).r)) * 0.5;
     float diff = d0 - moy;
     occ += smoothstep(0.02, 0.35, diff) * (1.0 - smoothstep(0.8, 1.8, diff));
   }
-  gl_FragColor = vec4(1.0 - occ / 4.0 * 0.85);
+  gl_FragColor = vec4(1.0 - occ / float(PAIRES) * 0.9);
 }`;
 
 const FRAG_FINAL = /* glsl */`
@@ -73,12 +73,20 @@ varying vec2 vUv;
 uniform sampler2D tScene, tProfondeur, tBloom, tAO, tRayons;
 uniform vec2 uTexel;
 uniform vec3 uCouleurSoleil;
-uniform float uExposition, uBloom, uRayons, uOdorat, uTemps, uDofForce, uDofFocus, uVignette, uGrain, uFiltre;
+uniform float uExposition, uBloom, uRayons, uOdorat, uTemps, uDofForce, uDofFocus, uVignette, uGrain, uFiltre, uNettete;
 ${PROFONDEUR}
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 void main() {
   vec3 col = min(texture2D(tScene, vUv).rgb, vec3(80.0));
+  #ifdef NETTETE
+  {
+    // accentuation : on renforce l'écart entre le pixel et la moyenne de ses voisins (détails plus nets)
+    vec3 voisins = (texture2D(tScene, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(tScene, vUv - vec2(uTexel.x, 0.0)).rgb
+                  + texture2D(tScene, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tScene, vUv - vec2(0.0, uTexel.y)).rgb) * 0.25;
+    col = max(col + (col - min(voisins, vec3(80.0))) * uNettete, vec3(0.0));
+  }
+  #endif
   #ifdef DOF
   {
     float z = profLineaire(texture2D(tProfondeur, vUv).r);
@@ -150,9 +158,10 @@ export class Post {
       tScene: { value: null }, tProfondeur: { value: null }, tBloom: { value: null }, tAO: { value: null }, tRayons: { value: null },
       uTexel: { value: new THREE.Vector2() }, uCouleurSoleil: { value: new THREE.Color() },
       uExposition: { value: 1 }, uBloom: { value: 0.12 }, uRayons: { value: 0 }, uOdorat: { value: 0 }, uTemps: { value: 0 },
-      uDofForce: { value: 0 }, uDofFocus: { value: 10 }, uVignette: { value: 0.55 }, uGrain: { value: 0.018 }, uFiltre: { value: 0 },
+      uDofForce: { value: 0 }, uDofFocus: { value: 10 }, uVignette: { value: 0.55 }, uGrain: { value: 0.018 }, uFiltre: { value: 0 }, uNettete: { value: 0 },
       uProche: { value: 0.25 }, uLointain: { value: 2600 },
     });
+    this.matAO.defines = { PAIRES: 4 }; this.matRayons.defines = { NB_RAYONS: 20 };
     this.q = { bloom: true, ao: false, dof: false, rayons: true, msaa: 0 };
     this.largeur = 0; this.hauteur = 0;
     this.cibleScene = null; this.bloomBas = []; this.bloomHaut = []; this.cibleAO = null; this.cibleRayons = null;
@@ -164,7 +173,10 @@ export class Post {
   reglerQualite(q) {
     this.q = { bloom: q.bloom, ao: q.ao, dof: q.dof, rayons: q.rayons, msaa: q.msaa };
     const d = {};
-    if (q.bloom) d.BLOOM = 1; if (q.ao) d.AO = 1; if (q.dof) d.DOF = 1; if (q.rayons) d.RAYONS = 1;
+    if (q.bloom) d.BLOOM = 1; if (q.ao) d.AO = 1; if (q.dof) d.DOF = 1; if (q.rayons) d.RAYONS = 1; if (q.nettete > 0) d.NETTETE = 1;
+    this.matFinal.uniforms.uNettete.value = q.nettete || 0;
+    this.matAO.defines = { PAIRES: q.aoFin ? 8 : 4 }; this.matAO.needsUpdate = true;
+    this.matRayons.defines = { NB_RAYONS: q.rayonsFin ? 40 : 20 }; this.matRayons.needsUpdate = true;
     this.matFinal.defines = d; this.matFinal.needsUpdate = true;
     const l = this.largeur, h = this.hauteur;
     this.largeur = 0;

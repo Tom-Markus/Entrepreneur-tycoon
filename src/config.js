@@ -128,33 +128,42 @@ export const CONFIG = {
   // Chaque niveau active ou coupe des effets. « Moyen » vise 30 images/s sur Chromebook.
   qualite: {
     niveaux: {
+      // BAS : pensé pour un Chromebook (puce graphique intégrée). Tout ce qui coûte cher est coupé ;
+      // les animaux gardent une ombre simplifiée (disque sombre) pour rester « posés » au sol.
       bas: {
-        nom: 'Bas', echelle: 0.6, pixelRatioMax: 1, msaa: 0,
-        cascades: 0, tailleOmbre: 512, porteeOmbre: 60, frequenceOmbres: 2,
-        bloom: false, ao: false, dof: false, rayons: false, reflets: false,
-        nuagesPas: 1, distanceVue: 420, densiteVegetation: 0.4, porteeProche: 0.45,
-        particules: 0.4, normalesTerrain: false, caustiques: false,
+        nom: 'Bas', description: 'Chromebook et ordinateurs modestes',
+        echelle: 0.55, pixelRatioMax: 1, msaa: 0,
+        cascades: 0, tailleOmbre: 512, porteeOmbre: 60, frequenceOmbres: 2, ombresSimples: true, ombresDetail: false,
+        bloom: false, ao: false, aoFin: false, dof: false, rayons: false, rayonsFin: false, reflets: false, nettete: 0,
+        nuagesPas: 1, distanceVue: 380, densiteVegetation: 0.2, porteeProche: 0.4, detailTerrain: 0.65,
+        particules: 0.3, normalesTerrain: false, caustiques: false,
       },
       moyen: {
-        nom: 'Moyen', echelle: 0.8, pixelRatioMax: 1, msaa: 2,
-        cascades: 2, tailleOmbre: 1024, porteeOmbre: 90, frequenceOmbres: 2,
-        bloom: true, ao: false, dof: false, rayons: true, reflets: true, refletsEco: true,
-        nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.6, porteeProche: 0.6,
+        nom: 'Moyen', description: 'Portable récent sans carte graphique dédiée',
+        echelle: 0.8, pixelRatioMax: 1, msaa: 2,
+        cascades: 2, tailleOmbre: 1024, porteeOmbre: 90, frequenceOmbres: 2, ombresSimples: false, ombresDetail: false,
+        bloom: true, ao: false, aoFin: false, dof: false, rayons: true, rayonsFin: false, reflets: true, refletsEco: true, nettete: 0,
+        nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.36, porteeProche: 0.6, detailTerrain: 1,
         particules: 0.7, normalesTerrain: true, caustiques: true,
       },
       eleve: {
-        nom: 'Élevé', echelle: 1, pixelRatioMax: 1.25, msaa: 4,
-        cascades: 3, tailleOmbre: 1024, porteeOmbre: 150, frequenceOmbres: 1,
-        bloom: true, ao: true, dof: true, rayons: true, reflets: true,
-        nuagesPas: 4, distanceVue: 850, densiteVegetation: 0.85, porteeProche: 1,
+        nom: 'Élevé', description: 'Ordinateur avec carte graphique',
+        echelle: 1, pixelRatioMax: 1.25, msaa: 4,
+        cascades: 3, tailleOmbre: 1024, porteeOmbre: 160, frequenceOmbres: 1, ombresSimples: false, ombresDetail: false,
+        bloom: true, ao: true, aoFin: false, dof: true, rayons: true, rayonsFin: false, reflets: true, nettete: 0.3,
+        nuagesPas: 4, distanceVue: 900, densiteVegetation: 0.6, porteeProche: 1, detailTerrain: 1.25,
         particules: 1, normalesTerrain: true, caustiques: true,
       },
+      // ULTRA : aucune retenue, réservé aux PC puissants (carte graphique dédiée récente).
+      // Végétation maximale, arbres détaillés jusqu'à 250 m, 4 cascades d'ombres en 2048,
+      // même les fougères projettent une ombre, reflets en pleine résolution, vue jusqu'à l'horizon.
       ultra: {
-        nom: 'Ultra', echelle: 1, pixelRatioMax: 2, msaa: 4,
-        cascades: 3, tailleOmbre: 2048, porteeOmbre: 220, frequenceOmbres: 1,
-        bloom: true, ao: true, dof: true, rayons: true, reflets: true,
-        nuagesPas: 6, distanceVue: 1100, densiteVegetation: 1, porteeProche: 1.25,
-        particules: 1.4, normalesTerrain: true, caustiques: true,
+        nom: 'Ultra', description: 'PC puissant uniquement (carte graphique dédiée récente)',
+        echelle: 1, pixelRatioMax: 2, msaa: 4,
+        cascades: 4, tailleOmbre: 2048, porteeOmbre: 320, frequenceOmbres: 1, ombresSimples: false, ombresDetail: true,
+        bloom: true, ao: true, aoFin: true, dof: true, rayons: true, rayonsFin: true, reflets: true, refletsPleins: true, nettete: 0.45,
+        nuagesPas: 8, distanceVue: 1500, densiteVegetation: 1, porteeProche: 1.7, detailTerrain: 1.9,
+        particules: 2, normalesTerrain: true, caustiques: true,
       },
     },
     ordre: ['bas', 'moyen', 'eleve', 'ultra'],

@@ -79,3 +79,38 @@ export class Ombres {
     }
   }
 }
+
+/**
+ * Ombres simplifiées pour le niveau « Bas » : un disque sombre et flou sous chaque animal.
+ * Presque gratuit (une seule commande de dessin) et les animaux ne semblent plus flotter.
+ */
+export class OmbresSimples {
+  constructor(scene, terrain, texture) {
+    this.terrain = terrain; this.max = 48;
+    const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ map: texture, color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -3 });
+    this.maille = new THREE.InstancedMesh(geo, mat, this.max);
+    this.maille.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.maille.frustumCulled = false; this.maille.renderOrder = 1; this.maille.visible = false;
+    scene.add(this.maille);
+    this.actives = false;
+    this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(); this._axe = new THREE.Vector3(0, 1, 0);
+  }
+
+  /** creatures : liste d'objets Creature visibles (joueur compris). jour : 0 la nuit … 1 en plein jour. */
+  mettreAJour(creatures, jour) {
+    this.maille.visible = this.actives && jour > 0.15;
+    if (!this.maille.visible) return;
+    let n = 0;
+    for (let i = 0; i < creatures.length && n < this.max; i++) {
+      const c = creatures[i], sol = this.terrain.hauteur(c.x, c.z);
+      if (sol < -0.05) continue;                     // pas d'ombre sur l'eau
+      const L = c.def.longueur * c.echelle;
+      this._q.setFromAxisAngle(this._axe, c.cap);
+      this._m.compose(this._p.set(c.x, sol + 0.05, c.z), this._q, this._s.set(c.def.rayon * c.echelle * 3.2 + 0.25, 1, L * 0.62 + 0.3));
+      this.maille.setMatrixAt(n++, this._m);
+    }
+    this.maille.count = n; this.maille.instanceMatrix.needsUpdate = true;
+    this.maille.material.opacity = 0.5 * Math.min(1, jour);
+  }
+}

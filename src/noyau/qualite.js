@@ -23,6 +23,7 @@ export class Qualite {
     jeu.vegetation.reglerQualite(q); jeu.ambiance.reglerQualite(q);
     jeu.post.reglerQualite(q);
     jeu.ombres.configurer(q.cascades, q.tailleOmbre, q.porteeOmbre, q.frequenceOmbres);
+    jeu.ombresSimples.actives = !!q.ombresSimples;
     jeu.redimensionner();
   }
 

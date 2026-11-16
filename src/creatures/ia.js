@@ -42,6 +42,7 @@ export class Ecosysteme {
     this.alea = creerAlea(CONFIG.monde.graine + 5);
     this.tCarcasseNaturelle = 60; this.image = 0;
     this.pousseurs = [];
+    this.visibles = [null];        // créatures affichées (case 0 réservée au joueur) : sert aux ombres simplifiées
     this._peupler();
   }
 
@@ -124,7 +125,10 @@ export class Ecosysteme {
       if (!a.vivant || a.c === source) continue;
       const r = a.def.rayon * a.c.echelle * 1.6;
       if (Math.hypot(a.x - x, a.z - z) > rayon + r) continue;
-      this.blesser(a, degats * (a.def.geant ? 0.15 : 1), source);
+      // attaque surprise : une proie qui ne vous a pas repéré subit le double des dégâts
+      const surprise = source.estJoueur && a.def.role !== 'predateur' && !a.def.geant && a.troupeau.etat !== 'fuite' && a.comportement !== 'alerte' && a.comportement !== 'defend' && a.troupeau.irrite <= 0;
+      if (surprise) { this.jeu.ui.notifier('Attaque surprise ! Dégâts doublés.'); this.jeu.progression.stats.surprises++; }
+      this.blesser(a, degats * (a.def.geant ? 0.15 : 1) * (surprise ? 2 : 1), source);
       touche = true;
     }
     if (touche) {
@@ -146,6 +150,7 @@ export class Ecosysteme {
     if (parJoueur) tr.agresse = true;
     if (a.sante <= 0) { this._mourir(a, parJoueur); return; }
     jeu.audio.jouerVoix(a.espece, 'cri', a, a.c.echelle);
+    if (a.def.role === 'predateur' && a.sante < a.def.sante * 0.35 && parJoueur && tr.etat !== 'fuite') { jeu.progression.stats.predateurs++; jeu.ui.notifier(a.def.nom + ' bat en retraite.'); }
     if (a.def.fuit || a.def.role === 'charognard' || (a.def.role === 'predateur' && a.sante < a.def.sante * 0.35)) this._fuir(tr, tr.menaceX, tr.menaceZ);
     else if (a.def.role === 'predateur' && parJoueur) { tr.etat = 'combat'; tr.tEtat = 0; }
   }
@@ -157,7 +162,8 @@ export class Ecosysteme {
     tr.membres.splice(tr.membres.indexOf(a), 1);
     this.carcasses.push({ x: a.x, z: a.z, viande: a.def.viande * Math.pow(a.c.echelle, 3), viandeMax: a.def.viande, t: 0, animal: a, rayon: a.def.rayon * a.c.echelle, espece: a.espece });
     jeu.audio.impact(1);
-    if (parJoueur) { jeu.carnet.signalerAction('chasse'); jeu.ui.notifier('Proie abattue. Maintenez ' + jeu.entrees.nomAction('interagir') + ' pour manger.'); }
+    if (parJoueur) { if (a.def.role === 'predateur') jeu.progression.stats.predateurs++; else jeu.progression.stats.proies++;
+      jeu.carnet.signalerAction('chasse'); jeu.ui.notifier('Proie abattue. Maintenez ' + jeu.entrees.nomAction('interagir') + ' pour manger.'); }
     if (a.def.fuit) this._fuir(tr, a.x, a.z);
   }
 
@@ -202,7 +208,7 @@ export class Ecosysteme {
   mettreAJour(dt) {
     const jeu = this.jeu, jc = jeu.joueur.creature, T = jeu.terrain;
     this.image++;
-    this.pousseurs.length = 0;
+    this.pousseurs.length = 0; this.visibles.length = 1;
     // --- Troupeaux : décisions de groupe (à tour de rôle) ---
     for (const tr of this.troupeaux) {
       tr.tPense -= dt; tr.tEtat += dt; tr.irrite = Math.max(0, tr.irrite - dt);
@@ -221,6 +227,7 @@ export class Ecosysteme {
       a.distJoueur = d;
       const proche = d < E.distanceAnimation + a.def.longueur;
       if (c.groupe.visible !== proche) c.groupe.visible = proche;
+      if (proche && d < 150) this.visibles.push(c);
       if (!a.vivant) { if (proche && !c.fige) c.mettreAJour(dt, T); continue; }
       let pas = dt;
       if (d > E.distanceIAComplete) { if (i % 8 !== lointain) continue; pas = dt * 8; }
