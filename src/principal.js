@@ -96,6 +96,7 @@ async function demarrer() {
   jeu.odorat = new Odorat(jeu);
   jeu.photo = new ModePhoto(jeu);
   jeu.qualite = new Qualite(jeu);
+  ui.preparerCarte();
   jeu.meteo.surEclair = (d) => jeu.audio.tonnerre(d);
 
   // Réglages enregistrés
@@ -254,6 +255,7 @@ function boucle(dtReel) {
     if (e.vientDe('carnet')) jeu.ui.ouvrirCarnet();
     else if (e.vientDe('photo')) jeu.photo.entrer();
     else if (e.vientDe('odorat')) jeu.odorat.basculer();
+    else if (e.vientDe('carte')) jeu.ui.basculerCarte();
     else if (e.vientDe('cinematique')) { jeu.cinematique = !jeu.cinematique; jeu.cameraJeu.mode = jeu.cinematique ? 'cinematique' : 'suivi'; document.body.classList.toggle('cine', jeu.cinematique); }
   } else if (jeu.etat === 'carnet' && e.vientDe('carnet')) jeu.ui.fermerCarnet();
   else if (jeu.etat === 'photo' && e.vientDe('photo')) jeu.photo.sortir();
@@ -291,6 +293,7 @@ function boucle(dtReel) {
   _pousseurs.length = 0; _pousseurs.push(_pj);
   for (let i = 0; i < jeu.ecosysteme.pousseurs.length; i++) { const a = jeu.ecosysteme.pousseurs[i], p = _pa[i]; p.x = a.x; p.y = a.y + 0.5; p.z = a.z; p.rayon = 0.8 + a.def.rayon * a.c.echelle * 1.8; _pousseurs.push(p); }
   jeu.vegetation.mettreAJour(dt, jeu.temps, cam, jeu.frustum, _pousseurs, jeu.meteo, jeu.ciel);
+  jeu.banque.uCiel.value.copy(jeu.ciel.couleurHorizon);
   jeu.eau.mettreAJour(jeu.tempsReel, jeu.ciel, jeu.meteo);
   const hEcran = jeu.post.hauteur;
   // lumière reçue par les particules : un peu de soleil + la lumière du ciel

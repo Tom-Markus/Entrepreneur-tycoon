@@ -14,24 +14,40 @@ const B = BIOME;
 // espacement : pas de la grille de semis (m). proba : chance de pousser par biome.
 // proche / loin : distances d'affichage du modèle détaillé puis simplifié. rayon : collision du tronc.
 export const ESPECES_FLORE = [
+  // --- Grands arbres ---
   { id: 'sequoia', nom: 'Conifère géant', espacement: 14, proche: 150, loin: 1200, capProche: 260, capLoin: 2600, rayon: 0.95, ombre: true,
-    echelle: [0.65, 1.25], proba: { [B.FORET_CONIFERES]: 0.5, [B.FORET_HUMIDE]: 0.05 } },
+    echelle: [0.65, 1.25], proba: { [B.FORET_CONIFERES]: 0.5, [B.FORET_HUMIDE]: 0.05, [B.FORET_VIERGE]: 0.04 } },
   { id: 'araucaria', nom: 'Araucaria', espacement: 13, proche: 150, loin: 1200, capProche: 260, capLoin: 2200, rayon: 0.55, ombre: true,
-    echelle: [0.7, 1.2], proba: { [B.FORET_CONIFERES]: 0.3, [B.FORET_HUMIDE]: 0.07, [B.PLAINE]: 0.012, [B.ROCAILLE]: 0.03 } },
-  { id: 'ginkgo', nom: 'Ginkgo', espacement: 11, proche: 120, loin: 700, capProche: 220, capLoin: 1500, rayon: 0.5, ombre: true,
-    echelle: [0.6, 1.25], proba: { [B.FORET_HUMIDE]: 0.42, [B.RIVE]: 0.2, [B.PLAINE]: 0.025, [B.FORET_CONIFERES]: 0.06, [B.MARAIS]: 0.05 } },
-  { id: 'fougereArbo', nom: 'Fougère arborescente', espacement: 8, proche: 95, loin: 420, capProche: 340, capLoin: 1800, rayon: 0.24, ombre: true, renversable: 0.85,
-    echelle: [0.5, 1.3], proba: { [B.FORET_HUMIDE]: 0.5, [B.RIVE]: 0.4, [B.FORET_CONIFERES]: 0.1, [B.MARAIS]: 0.16, [B.PLAINE]: 0.015 } },
-  { id: 'cycas', nom: 'Cycadale', espacement: 7, proche: 85, loin: 320, capProche: 420, capLoin: 1800, rayon: 0.3, ombre: true, renversable: 9,
-    echelle: [0.7, 1.5], proba: { [B.PLAINE]: 0.09, [B.FORET_HUMIDE]: 0.3, [B.RIVE]: 0.2, [B.FORET_CONIFERES]: 0.12, [B.PLAGE]: 0.025, [B.ROCAILLE]: 0.04 } },
+    echelle: [0.7, 1.2], proba: { [B.FORET_CONIFERES]: 0.28, [B.LANDE]: 0.06, [B.FORET_HUMIDE]: 0.05, [B.PLAINE]: 0.012, [B.ROCAILLE]: 0.03 } },
+  { id: 'ginkgo', nom: 'Ginkgo', espacement: 11, proche: 120, loin: 700, capProche: 240, capLoin: 1500, rayon: 0.5, ombre: true,
+    echelle: [0.6, 1.25], proba: { [B.FORET_HUMIDE]: 0.45, [B.FORET_VIERGE]: 0.12, [B.RIVE]: 0.15, [B.PLAINE]: 0.02, [B.MARAIS]: 0.04 } },
+  { id: 'podocarpe', nom: 'Podocarpe', espacement: 12, proche: 130, loin: 800, capProche: 240, capLoin: 1500, rayon: 0.9, ombre: true,
+    echelle: [0.65, 1.3], proba: { [B.FORET_VIERGE]: 0.55, [B.FORET_HUMIDE]: 0.08, [B.RIVE]: 0.1 } },
+  // --- Sous-étage ---
+  { id: 'fougereArbo', nom: 'Fougère arborescente', espacement: 7, proche: 95, loin: 420, capProche: 420, capLoin: 2200, rayon: 0.24, ombre: true, renversable: 0.85,
+    echelle: [0.5, 1.4], proba: { [B.FORET_VIERGE]: 0.55, [B.RIVE]: 0.4, [B.FORET_HUMIDE]: 0.25, [B.MARAIS]: 0.16, [B.FORET_CONIFERES]: 0.06 } },
+  { id: 'cycas', nom: 'Cycadale', espacement: 6, proche: 85, loin: 320, capProche: 460, capLoin: 2000, rayon: 0.3, ombre: true, renversable: 9,
+    echelle: [0.7, 1.5], proba: { [B.LANDE]: 0.3, [B.PLAINE]: 0.08, [B.FORET_HUMIDE]: 0.2, [B.FORET_VIERGE]: 0.2, [B.FORET_CONIFERES]: 0.08, [B.PLAGE]: 0.03, [B.ROCAILLE]: 0.05 } },
+  { id: 'williamsonia', nom: 'Williamsonia', espacement: 7, proche: 85, loin: 300, capProche: 360, capLoin: 1500, rayon: 0.14, ombre: true, renversable: 9,
+    echelle: [0.7, 1.4], proba: { [B.FORET_VIERGE]: 0.3, [B.FORET_HUMIDE]: 0.2, [B.LANDE]: 0.12, [B.RIVE]: 0.15 } },
+  { id: 'arbuste', nom: 'Arbuste', espacement: 6, proche: 75, loin: 260, capProche: 420, capLoin: 1800, rayon: 0, ombre: true,
+    echelle: [0.6, 1.5], proba: { [B.FORET_CONIFERES]: 0.3, [B.FORET_HUMIDE]: 0.22, [B.FORET_VIERGE]: 0.25, [B.LANDE]: 0.1, [B.ROCAILLE]: 0.06 } },
+  { id: 'sapin', modele: 'sequoia', nom: 'Jeune conifère', espacement: 9, proche: 90, loin: 320, capProche: 200, capLoin: 900, rayon: 0.9, ombre: true, renversable: 9,
+    echelle: [0.1, 0.3], proba: { [B.FORET_CONIFERES]: 0.3, [B.FORET_HUMIDE]: 0.08, [B.LANDE]: 0.03 } },
+  // --- Tapis végétal ---
+  { id: 'osmonde', nom: 'Osmonde', espacement: 3.4, proche: 55, loin: 170, capProche: 1500, capLoin: 3000, rayon: 0, ombre: false, detail: true,
+    echelle: [0.6, 1.4], proba: { [B.FORET_VIERGE]: 0.6, [B.RIVE]: 0.45, [B.FORET_HUMIDE]: 0.3, [B.MARAIS]: 0.2, [B.FORET_CONIFERES]: 0.1 } },
   { id: 'fougere', nom: 'Fougère', espacement: 2.3, proche: 55, loin: 150, capProche: 4200, capLoin: 9000, rayon: 0, ombre: false, detail: true,
-    echelle: [0.7, 1.9], proba: { [B.PLAINE]: 0.6, [B.FORET_HUMIDE]: 0.75, [B.FORET_CONIFERES]: 0.55, [B.RIVE]: 0.5, [B.MARAIS]: 0.12, [B.ROCAILLE]: 0.06 } },
+    echelle: [0.7, 1.9], proba: { [B.PLAINE]: 0.6, [B.FORET_HUMIDE]: 0.7, [B.FORET_VIERGE]: 0.85, [B.FORET_CONIFERES]: 0.5, [B.RIVE]: 0.5, [B.MARAIS]: 0.12, [B.ROCAILLE]: 0.06, [B.LANDE]: 0.18 } },
+  { id: 'lycopode', nom: 'Lycopode', espacement: 2.6, proche: 40, loin: 95, capProche: 2600, capLoin: 4000, rayon: 0, ombre: false, detail: true,
+    echelle: [0.7, 1.8], proba: { [B.FORET_VIERGE]: 0.55, [B.FORET_HUMIDE]: 0.3, [B.FORET_CONIFERES]: 0.3, [B.RIVE]: 0.3, [B.MARAIS]: 0.2, [B.PLAINE]: 0.12 } },
   { id: 'prele', nom: 'Prêle géante', espacement: 3, proche: 60, loin: 190, capProche: 1500, capLoin: 3500, rayon: 0, ombre: false, detail: true, humide: true,
-    echelle: [0.6, 1.3], proba: { [B.MARAIS]: 0.5, [B.RIVE]: 0.42 } },
-  { id: 'troncMort', nom: 'Tronc mort', espacement: 24, proche: 110, loin: 300, capProche: 80, capLoin: 200, rayon: 0, ombre: true,
-    echelle: [0.7, 1.3], proba: { [B.FORET_HUMIDE]: 0.14, [B.FORET_CONIFERES]: 0.14, [B.RIVE]: 0.05, [B.PLAGE]: 0.03 } },
+    echelle: [0.6, 1.3], proba: { [B.MARAIS]: 0.5, [B.RIVE]: 0.45, [B.FORET_VIERGE]: 0.05 } },
+  // --- Minéral et bois mort ---
+  { id: 'troncMort', nom: 'Tronc mort', espacement: 22, proche: 110, loin: 300, capProche: 90, capLoin: 240, rayon: 0, ombre: true,
+    echelle: [0.7, 1.3], proba: { [B.FORET_VIERGE]: 0.25, [B.FORET_HUMIDE]: 0.15, [B.FORET_CONIFERES]: 0.15, [B.RIVE]: 0.06, [B.PLAGE]: 0.03 } },
   { id: 'rocher', nom: 'Rocher', espacement: 12, proche: 120, loin: 600, capProche: 220, capLoin: 900, rayon: 1, ombre: true, roche: true,
-    echelle: [0.5, 2.6], proba: { [B.ROCAILLE]: 0.3, [B.PLAGE]: 0.03, [B.PLAINE]: 0.014, [B.FORET_CONIFERES]: 0.04, [B.FORET_HUMIDE]: 0.02 } },
+    echelle: [0.5, 2.6], proba: { [B.ROCAILLE]: 0.3, [B.PLAGE]: 0.03, [B.PLAINE]: 0.014, [B.LANDE]: 0.03, [B.FORET_CONIFERES]: 0.04, [B.FORET_HUMIDE]: 0.02, [B.FORET_VIERGE]: 0.02 } },
 ];
 
 const NB_POUSSEURS = 4;
@@ -175,7 +191,7 @@ export class Vegetation {
     for (const esp of ESPECES_FLORE) {
       const mat = esp.roche ? matRoche : this._materiauFeuillage(esp);
       const creer = (simple, capacite) => {
-        const maille = new THREE.InstancedMesh(FLORE[esp.id](simple), mat, Math.min(capacite, Math.max(1, esp.total)));
+        const maille = new THREE.InstancedMesh(FLORE[esp.modele || esp.id](simple), mat, Math.min(capacite, Math.max(1, esp.total)));
         maille.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         maille.frustumCulled = false; maille.count = 0;
         maille.castShadow = esp.ombre; maille.receiveShadow = true;

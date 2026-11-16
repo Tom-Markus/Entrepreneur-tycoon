@@ -12,8 +12,8 @@ const PAS = M.taille / (N - 1);      // 2 m
 const DEMI = M.taille / 2;
 
 // Identifiants des biomes
-export const BIOME = { EAU: 0, PLAGE: 1, MARAIS: 2, PLAINE: 3, FORET_HUMIDE: 4, FORET_CONIFERES: 5, ROCAILLE: 6, RIVE: 7 };
-export const NOMS_BIOMES = ['Eau', 'Plage', 'Marais', 'Plaine à fougères', 'Forêt humide', 'Forêt de conifères', 'Falaises', 'Rive'];
+export const BIOME = { EAU: 0, PLAGE: 1, MARAIS: 2, PLAINE: 3, FORET_HUMIDE: 4, FORET_CONIFERES: 5, ROCAILLE: 6, RIVE: 7, FORET_VIERGE: 8, LANDE: 9 };
+export const NOMS_BIOMES = ['Eau', 'Plage', 'Marais', 'Plaine à fougères', 'Forêt de ginkgos', 'Forêt de conifères', 'Falaises', 'Rive', 'Forêt vierge', 'Lande à cycadales'];
 
 // Repères géographiques du monde (x vers l'est, z vers le sud)
 export const LIEUX = {
@@ -143,18 +143,29 @@ export class Terrain {
         if (h < 0) boue = Math.max(boue, (1 - cote[k]) * 0.8);
         roche = borner(roche, 0, 1); sable = borner(sable * (1 - roche), 0, 1);
         boue = borner(boue * (1 - roche) * (1 - sable), 0, 1);
-        const humidite = borner(0.55 + n * 0.5 + rive[k] * 0.4 + marais[k] * 0.3, 0, 1);
-        const mousse = borner((1 - roche * 1.4 - sable * 1.5 - boue * 0.6) * humidite, 0, 1) * (h > 0.2 ? 1 : 0);
-        S[k * 4] = boue * 255; S[k * 4 + 1] = roche * 255; S[k * 4 + 2] = sable * 255; S[k * 4 + 3] = mousse * 255;
+        // Deux grandeurs décident du milieu, comme dans la nature : l'humidité et la sécheresse du sol.
+        // Elles varient lentement (taches de 150 à 400 m) : on traverse donc une mosaïque de biomes.
+        const hum = this.bruit.fbm(x * 0.0046 + 11, z * 0.0046 - 7, 3) * 1.25 + rive[k] * 0.55 - Math.max(0, h - 12) * 0.012;
+        const sec = b.fbm(x * 0.0038 - 3, z * 0.0038 + 21, 3) * 1.25;
         let biome;
         if (h < 0) biome = marais[k] > 0.5 ? BIOME.MARAIS : BIOME.EAU;
         else if (sable > 0.45) biome = BIOME.PLAGE;
         else if (marais[k] > 0.5) biome = BIOME.MARAIS;
         else if (roche > 0.5) biome = BIOME.ROCAILLE;
         else if (rive[k] > 0.45 && h < 3.5) biome = BIOME.RIVE;
-        else if (plaine[k] > 0.45 && n < 0.32) biome = BIOME.PLAINE;
-        else biome = (h > 30 || n > 0.12) ? BIOME.FORET_CONIFERES : BIOME.FORET_HUMIDE;
+        else if (h > 38 + n * 10) biome = BIOME.FORET_CONIFERES;                 // hauteurs fraîches
+        else if (hum > 0.2) biome = BIOME.FORET_VIERGE;                          // fonds humides : jungle dense
+        else if (plaine[k] > 0.4 && hum < 0.02) biome = sec > 0.22 ? BIOME.LANDE : BIOME.PLAINE;
+        else if (hum > -0.1) biome = BIOME.FORET_HUMIDE;
+        else biome = sec > 0.18 ? BIOME.LANDE : BIOME.FORET_CONIFERES;
         B[k] = biome;
+        // Tapis végétal : épais en forêt vierge, clairsemé sur la lande (sol nu, sableux)
+        let humidite = borner(0.55 + n * 0.5 + rive[k] * 0.4 + marais[k] * 0.3, 0, 1);
+        if (biome === BIOME.FORET_VIERGE) humidite = 1;
+        else if (biome === BIOME.LANDE) { humidite *= 0.3; sable = Math.max(sable, 0.22 + n * 0.12); }
+        else if (biome === BIOME.FORET_CONIFERES) humidite *= 0.75;
+        const mousse = borner((1 - roche * 1.4 - sable * 1.5 - boue * 0.6) * humidite, 0, 1) * (h > 0.2 ? 1 : 0);
+        S[k * 4] = boue * 255; S[k * 4 + 1] = roche * 255; S[k * 4 + 2] = sable * 255; S[k * 4 + 3] = mousse * 255;
         // Points d'eau douce (berge, pas la mer)
         if (i % 6 === 0 && j % 6 === 0 && h > -0.35 && h < 0.05 && cote[k] < 0.12 && pente < 0.3
           && (hg < -0.3 || hd < -0.3 || hb < -0.3 || hh < -0.3 || H[k + 3] < -0.4 || H[k - 3] < -0.4)) {

@@ -17,6 +17,7 @@ export class Interface {
     this.racine = $('#interface');
     this.racine.innerHTML = `
       <div id="hud" class="cache">
+        <div id="minicarte"><canvas width="400" height="400"></canvas><b>N</b><small></small></div>
         <div id="etat"><div class="stade"></div><div class="jauge"><i></i></div><small></small></div>
         <div id="boussole">${CARDINAUX.map((c) => `<span class="${c[2] ? 'cardinal' : ''}">${c[0]}</span>`).join('')}<span class="repere">⌂</span><span class="repere">≈</span></div>
         <div id="observation" class="cache"><small>Observation en cours</small><b></b><span></span><div class="jauge"><i></i></div></div>
@@ -43,6 +44,7 @@ export class Interface {
     this.jauges = [...this.racine.querySelectorAll('#besoins .besoin')];
     this.reperes = [...this.racine.querySelectorAll('#boussole span')];
     this.notes = $('#notes'); this.tAnnonce = 0; this.tHud = 0;
+    this.miniCarte = $('#minicarte canvas'); this.carteGrande = false; this.tCarte = 0; this.fondCarte = null;
     this.ongletCarnet = 'faune'; this.ficheChoisie = 'allosaurus'; this.floreChoisie = 'fougere';
     this.etapeTuto = -1; this.tTuto = 0; this.memoTuto = {};
     this._construireTitre(); this._construirePause(); this._construirePhoto();
@@ -208,11 +210,11 @@ export class Interface {
       page = `<p class="discret">Points disponibles : <b>${j.points}</b>. Ils se gagnent en documentant des comportements et à chaque nouveau stade de croissance.</p>`
         + COMPETENCES.map((q) => `<div class="comp"><div><b>${q.nom}</b><small>${q.effet}</small></div>${j.a(q.id) ? '<span style="color:var(--ocre)">Acquise</span>' : `<button class="bouton petit" data-comp="${q.id}" ${j.points ? '' : 'disabled'}>Apprendre</button>`}</div>`).join('')
         + `<h3>Votre Allosaurus</h3><p class="discret">Stade : ${j.infosStade.nom} · longueur ≈ ${(8.5 * j.creature.echelle).toFixed(1)} m · masse ≈ ${Math.round(j.masse)} kg · marques de territoire : ${j.marques.length} · nid : ${j.nid ? 'établi' : 'aucun'}</p>`;
-    } else page = '<canvas id="carte" width="512" height="512"></canvas><p class="discret">Losange clair : vous · maison : nid · cercles : territoire marqué. Le nord est en haut.</p>';
+    } else page = '<canvas id="carte" width="512" height="512"></canvas><p class="discret">Flèche blanche : vous · maison : nid · cercles : territoire marqué. Vert sombre : forêt vierge · vert clair : forêt de ginkgos · vert bleuté : conifères · beige : lande et plage. Le nord est en haut.</p>';
     k.innerHTML = `<div class="panneau"><h2>Carnet de bord</h2><div class="onglets">${onglets.map((o) => `<button class="onglet ${o[0] === this.ongletCarnet ? 'actif' : ''}" data-onglet="${o[0]}">${o[1]}</button>`).join('')}</div>
       <div class="pages">${page}</div><div class="pied"><button class="bouton petit" data-a="fermer">Fermer (${jeu.entrees.nomAction('carnet')})</button></div></div>`;
     k.classList.remove('cache');
-    if (this.ongletCarnet === 'carte') this._dessinerCarte($('#carte'));
+    if (this.ongletCarnet === 'carte') this._dessinerCarte($('#carte'), 0, 0, CONFIG.monde.taille);
     k.onclick = (ev) => {
       const d = ev.target.closest('button'); if (!d) return;
       if (d.dataset.onglet) this.ongletCarnet = d.dataset.onglet;
@@ -224,29 +226,60 @@ export class Interface {
     };
   }
 
-  _dessinerCarte(canvas) {
-    const jeu = this.jeu, T = jeu.terrain, g = canvas.getContext('2d'), S = 512, M = CONFIG.monde.taille;
-    if (!this.fondCarte) {
-      // fond calculé une seule fois à partir des biomes et du relief
-      const img = g.createImageData(S, S);
-      const teintes = { [BIOME.EAU]: [52, 84, 98], [BIOME.PLAGE]: [196, 178, 132], [BIOME.MARAIS]: [70, 88, 60], [BIOME.PLAINE]: [112, 128, 74], [BIOME.FORET_HUMIDE]: [58, 96, 54], [BIOME.FORET_CONIFERES]: [40, 72, 50], [BIOME.ROCAILLE]: [128, 120, 108], [BIOME.RIVE]: [94, 116, 76] };
-      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-        const wx = (x / S - 0.5) * M, wz = (y / S - 0.5) * M, h = T.hauteur(wx, wz);
-        const c = teintes[T.biome(wx, wz)], relief = 0.8 + Math.max(-0.25, Math.min(0.45, (T.hauteur(wx - 6, wz - 6) - h) * 0.05)) + Math.min(0.2, Math.max(0, h) * 0.002);
-        const i = (y * S + x) * 4, eau = h < 0 ? Math.max(0.55, 1 + h * 0.04) : relief;
-        img.data[i] = c[0] * eau; img.data[i + 1] = c[1] * eau; img.data[i + 2] = c[2] * eau; img.data[i + 3] = 255;
-      }
-      this.fondCarte = img;
+  /** Fond de carte (relief + biomes), calculé une seule fois : 1 pixel = 2 m. */
+  preparerCarte() {
+    const T = this.jeu.terrain, S = 1024, M = CONFIG.monde.taille;
+    const c = document.createElement('canvas'); c.width = c.height = S;
+    const g = c.getContext('2d'), img = g.createImageData(S, S);
+    const teintes = { [BIOME.EAU]: [52, 84, 98], [BIOME.PLAGE]: [196, 178, 132], [BIOME.MARAIS]: [78, 96, 62], [BIOME.PLAINE]: [128, 140, 78], [BIOME.FORET_HUMIDE]: [84, 124, 58],
+      [BIOME.FORET_CONIFERES]: [44, 78, 56], [BIOME.ROCAILLE]: [132, 124, 112], [BIOME.RIVE]: [100, 122, 80], [BIOME.FORET_VIERGE]: [34, 96, 44], [BIOME.LANDE]: [160, 140, 92] };
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const wx = (x / S - 0.5) * M, wz = (y / S - 0.5) * M, h = T.hauteur(wx, wz);
+      const t = teintes[T.biome(wx, wz)], relief = 0.82 + Math.max(-0.25, Math.min(0.45, (T.hauteur(wx - 5, wz - 5) - h) * 0.06)) + Math.min(0.2, Math.max(0, h) * 0.002);
+      const i = (y * S + x) * 4, k = h < 0 ? Math.max(0.55, 1 + h * 0.04) : relief;
+      img.data[i] = t[0] * k; img.data[i + 1] = t[1] * k; img.data[i + 2] = t[2] * k; img.data[i + 3] = 255;
     }
-    g.putImageData(this.fondCarte, 0, 0);
-    const X = (v) => (v / M + 0.5) * S, j = jeu.joueur, c = j.creature;
-    g.strokeStyle = 'rgba(217,181,106,0.8)'; g.fillStyle = 'rgba(217,181,106,0.12)'; g.lineWidth = 1.2;
-    for (const m of j.marques) { g.beginPath(); g.arc(X(m.x), X(m.z), (CONFIG.joueur.rayonMarque / M) * S, 0, 6.3); g.fill(); g.stroke(); }
-    g.fillStyle = '#f1ead9'; g.font = '16px sans-serif'; g.textAlign = 'center';
-    if (j.nid) g.fillText('⌂', X(j.nid.x), X(j.nid.z) + 5);
-    g.save(); g.translate(X(c.x), X(c.z)); g.rotate(Math.PI - c.cap);
-    g.beginPath(); g.moveTo(0, -8); g.lineTo(5, 6); g.lineTo(0, 3); g.lineTo(-5, 6); g.closePath(); g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.fill(); g.stroke(); g.restore();
+    g.putImageData(img, 0, 0);
+    this.fondCarte = c;
   }
+
+  /**
+   * Dessine la carte dans un canvas. `etendue` = largeur de terrain visible (m), centrée sur (cx, cz).
+   * Sert à la mini-carte, à sa version agrandie et à l'onglet « Carte » du carnet.
+   */
+  _dessinerCarte(canvas, cx, cz, etendue) {
+    const jeu = this.jeu, g = canvas.getContext('2d'), L = canvas.width, M = CONFIG.monde.taille, F = this.fondCarte.width;
+    const ech = L / etendue;                                   // pixels par mètre
+    const X = (x) => (x - cx) * ech + L / 2, Z = (z) => (z - cz) * ech + L / 2;
+    g.fillStyle = '#2d4a57'; g.fillRect(0, 0, L, L);
+    const sx = (cx - etendue / 2 + M / 2) / M * F, sz = (cz - etendue / 2 + M / 2) / M * F, sl = etendue / M * F;
+    g.imageSmoothingEnabled = true;
+    g.drawImage(this.fondCarte, sx, sz, sl, sl, 0, 0, L, L);
+    const j = jeu.joueur, c = j.creature;
+    g.strokeStyle = 'rgba(217,181,106,0.85)'; g.fillStyle = 'rgba(217,181,106,0.13)'; g.lineWidth = 1.5;
+    for (const m of j.marques) { g.beginPath(); g.arc(X(m.x), Z(m.z), CONFIG.joueur.rayonMarque * ech, 0, 6.3); g.fill(); g.stroke(); }
+    // odeurs : visibles sur la carte quand la vision olfactive est active
+    if (jeu.odorat.actif) {
+      const portee = 150 * (j.a('odorat') ? 1.5 : 1);
+      for (const a of jeu.ecosysteme.animaux) {
+        if (!a.vivant || a.distJoueur > portee) continue;
+        g.fillStyle = a.def.role === 'predateur' ? '#ff4630' : '#ffa52a';
+        g.beginPath(); g.arc(X(a.x), Z(a.z), Math.max(2.5, a.def.rayon * 1.6), 0, 6.3); g.fill();
+      }
+      g.fillStyle = '#62e04e';
+      for (const k of jeu.ecosysteme.carcasses) if (k.viande > 0 && Math.hypot(k.x - c.x, k.z - c.z) < portee * 1.6) { g.beginPath(); g.arc(X(k.x), Z(k.z), 3.5, 0, 6.3); g.fill(); }
+    }
+    g.fillStyle = '#f1ead9'; g.strokeStyle = '#000'; g.lineWidth = 3; g.font = 'bold 22px sans-serif'; g.textAlign = 'center';
+    if (j.nid) { g.strokeText('⌂', X(j.nid.x), Z(j.nid.z) + 7); g.fillText('⌂', X(j.nid.x), Z(j.nid.z) + 7); }
+    // le joueur : une flèche orientée selon son cap
+    g.save(); g.translate(X(c.x), Z(c.z)); g.rotate(Math.PI - c.cap);
+    const t = L / 400;
+    g.beginPath(); g.moveTo(0, -11 * t); g.lineTo(7 * t, 8 * t); g.lineTo(0, 4 * t); g.lineTo(-7 * t, 8 * t); g.closePath();
+    g.fillStyle = '#fff'; g.lineWidth = 1.5; g.fill(); g.stroke(); g.restore();
+  }
+
+  /** Touche M : la mini-carte passe du voisinage (340 m) à l'île entière. */
+  basculerCarte() { this.carteGrande = !this.carteGrande; this.hud.classList.toggle('carte-grande', this.carteGrande); this.tCarte = 0; }
 
   // ---------------------------------------------------------- MODE PHOTO ----
   _construirePhoto() {
@@ -279,7 +312,7 @@ export class Interface {
       [`${k('odorat')} active la vision olfactive : proies en orange, prédateurs en rouge, carcasses en vert, eau douce en bleu. Essayez.`, () => jeu.odorat.actif || this.tTuto > 20],
       [`Suivez l'odeur bleue jusqu'à l'eau, arrêtez-vous au bord et maintenez ${k('interagir')} pour boire. On mange de la même façon près d'une carcasse.`, () => j.interaction === 'boire' || this.tTuto > 60],
       [`Gardez un animal à l'écran quelques secondes pour remplir votre carnet de bord ${k('carnet')}. Le mode photo ${k('photo')} valide une fiche d'un seul cliché.`, () => jeu.carnet.nbSections > 3 || this.tTuto > 40],
-      [`${k('morsure')} mordre · ${k('queue')} coup de queue · ${k('esquive')} esquiver · ${k('rugir')} rugir · ${k('reposer')} dormir · ${k('marquer')} marquer le territoire · ${k('nid')} établir le nid. Bonne exploration.`, () => this.tTuto > 16],
+      [`${k('morsure')} mordre · ${k('queue')} coup de queue · ${k('esquive')} esquiver · ${k('rugir')} rugir · ${k('reposer')} dormir · ${k('marquer')} marquer le territoire · ${k('nid')} établir le nid · ${k('carte')} agrandir la carte. Bonne exploration.`, () => this.tTuto > 16],
     ];
     if (this.etapeTuto >= etapes.length) { this.etapeTuto = -1; jeu.reglages.tutorielFait = true; jeu.enregistrerReglages(); return; }
     this.tTuto += dt;
@@ -311,9 +344,17 @@ export class Interface {
     if (j.nid) placer(this.reperes[8], vers(j.nid)); else this.reperes[8].style.opacity = 0;
     if (jeu.odorat.actif && jeu.odorat.eauProche) placer(this.reperes[9], vers(jeu.odorat.eauProche)); else this.reperes[9].style.opacity = 0;
     this._tutoriel(dt);
+    // mini-carte : redessinée 6 fois par seconde
+    this.tCarte -= dt;
+    if (this.tCarte <= 0 && this.fondCarte) {
+      this.tCarte = 0.16;
+      if (this.carteGrande) this._dessinerCarte(this.miniCarte, 0, 0, CONFIG.monde.taille);
+      else this._dessinerCarte(this.miniCarte, c.x, c.z, 340);
+    }
     this.tHud -= dt;
     if (this.tHud > 0) return;
     this.tHud = 0.25;
+    $('#minicarte small').textContent = jeu.entrees.nomAction('carte');
     const e = $('#etat');
     e.querySelector('.stade').textContent = 'Allosaurus ' + j.infosStade.nom.toLowerCase();
     e.querySelector('.jauge i').style.transform = `scaleX(${j.progression.toFixed(3)})`;

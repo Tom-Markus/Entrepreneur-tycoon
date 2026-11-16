@@ -3,7 +3,7 @@
 // Repère : +Z vers l'avant (tête), +Y vers le haut, +X vers la gauche de l'animal. Unités : mètres.
 import * as THREE from 'three';
 import { Bruit } from '../noyau/maths.js';
-import { TUILES, NB_TUILES } from '../rendu/textures.js';
+import { TUILES, uvTuile } from '../rendu/textures.js';
 
 const bruitMotif = new Bruit(2024);
 
@@ -221,7 +221,7 @@ export function construireCreature(def, variante = {}) {
     return { z: pz + t * L, y: py + mix(1) * L * hf, rx: mix(2) * L * lf, ryH: mix(3) * L * hf, ryB: mix(4) * L * hf };
   };
   // Yeux
-  { const e = surCrane(T.oeilT || 0.3), r = 0.036 * L * (T.oeil || 1);
+  { const e = surCrane(T.oeilT || 0.3), r = 0.045 * L * (T.oeil || 1);
     for (const c of [-1, 1]) {
       const b = [c * e.rx * 0.84, e.y + e.ryH * 0.58, e.z];
       m.cone(b, [c, 0, 0], r * 0.9, r, [0.16, 0.09, 0.02], O.tete, 8, OEIL);   // iris ambré, pupille sombre
@@ -302,10 +302,10 @@ export function construireCreature(def, variante = {}) {
     // Stegosaurus : 17 plaques alternées sur deux rangées + 4 piques caudales (« thagomizer »)
     for (let i = 0; i < 17; i++) {
       const seg = nbQ - 3.2 + (i / 16) * (nbCtrl - 1.2 - (nbQ - 3.2)), d = dos(seg);
-      const taille = (0.22 + 0.62 * Math.pow(Math.sin(Math.PI * (1 - i / 16) * 0.92 + 0.12), 1.4)), cote = i % 2 ? 1 : -1;
+      const taille = (0.26 + 0.78 * Math.pow(Math.sin(Math.PI * (1 - i / 16) * 0.92 + 0.12), 1.4)), cote = i % 2 ? 1 : -1;
       const larg = taille * 0.78, ep = 0.035, x0 = cote * d.rx * 0.16, incl = cote * 0.16;
       const B = [x0, d.p[1] - 0.06, d.p[2]];
-      const cBase = couleur(d.u, 1, 1.5), cHaut = [0.2, 0.07, 0.03];
+      const cBase = couleur(d.u, 1, 1.5), cHaut = [0.3, 0.085, 0.03];
       const av = [B[0], B[1] + d.avant[1] * larg / 2, B[2] + d.avant[2] * larg / 2, cBase], ar = [B[0], B[1] - d.avant[1] * larg / 2, B[2] - d.avant[2] * larg / 2, cBase];
       const ht = [B[0] + incl * taille, B[1] + d.haut[1] * taille, B[2] + d.haut[2] * taille, cHaut];
       const mid = (s) => [B[0] + incl * taille * 0.4 + s * ep, B[1] + d.haut[1] * taille * 0.42, B[2] + d.haut[2] * taille * 0.42, [0.14, 0.09, 0.045]];
@@ -326,7 +326,7 @@ export function construireCreature(def, variante = {}) {
   // ----- Protofilaments (frange discrète) -----
   const F = variante.filaments !== undefined ? variante.filaments : def.filaments;
   if (F) {
-    const u0 = (TUILES.filament + 0.03) / NB_TUILES, u1 = (TUILES.filament + 0.97) / NB_TUILES, blanc = [0.42, 0.38, 0.3];
+    const [u0, u1, fv0, fv1] = uvTuile(TUILES.filament, 0.03), blanc = [0.42, 0.38, 0.3];
     for (let r = 0; r < F.rangs; r++) {
       const lat = F.rangs === 1 ? 0 : (r - (F.rangs - 1) / 2) * 0.55;       // décalage angulaire du rang
       let prec = -1, bascule = 0;
@@ -336,8 +336,8 @@ export function construireCreature(def, variante = {}) {
         const bx = Math.sin(lat) * s.rx * 0.98, by = s.c[1] + d.haut[1] * Math.cos(lat) * s.ryH * 0.96, bz = s.c[2] + d.haut[2] * Math.cos(lat) * s.ryH * 0.96;
         const hx = Math.sin(lat) * hF, hy = d.haut[1] * Math.cos(lat) * hF - d.avant[1] * hF * 0.5, hz = d.haut[2] * Math.cos(lat) * hF - d.avant[2] * hF * 0.5;
         const uu = bascule++ % 2 ? u1 : u0;
-        const a = m.sommet(bx, by, bz, Math.sin(lat), Math.cos(lat), 0, uu, 0.02, blanc, s.os[0], s.os[1], s.os[2], s.os[3]);
-        m.sommet(bx + hx, by + hy, bz + hz, Math.sin(lat), Math.cos(lat), 0, uu, 0.95, blanc, s.os[0], s.os[1], s.os[2], s.os[3]);
+        const a = m.sommet(bx, by, bz, Math.sin(lat), Math.cos(lat), 0, uu, fv0, blanc, s.os[0], s.os[1], s.os[2], s.os[3]);
+        m.sommet(bx + hx, by + hy, bz + hz, Math.sin(lat), Math.cos(lat), 0, uu, fv0 + (fv1 - fv0) * 0.95, blanc, s.os[0], s.os[1], s.os[2], s.os[3]);
         if (prec >= 0) m.idxFil.push(prec, a, prec + 1, prec + 1, a, a + 1);
         prec = a;
       }

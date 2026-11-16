@@ -36,8 +36,8 @@ export function creerTexturesSol() {
   const palettes = [
     [[0.060, 0.042, 0.026], [0.150, 0.105, 0.060], 0.92], // terre / humus
     [[0.045, 0.032, 0.022], [0.105, 0.078, 0.050], 0.42], // boue humide
-    [[0.110, 0.100, 0.088], [0.300, 0.270, 0.230], 0.85], // roche
-    [[0.420, 0.340, 0.230], [0.620, 0.530, 0.380], 0.90], // sable
+    [[0.060, 0.055, 0.048], [0.170, 0.155, 0.130], 0.85], // roche
+    [[0.270, 0.220, 0.150], [0.420, 0.360, 0.260], 0.90], // sable
   ];
   for (let c = 0; c < 4; c++) {
     for (let y = 0; y < T; y++) {
@@ -165,8 +165,14 @@ function texToile(c, repete = false) {
   return tex;
 }
 
-export const TUILES = { fougere: 0, cycas: 1, conifere: 2, ginkgo: 3, prele: 4, filament: 5, fougereMorte: 6, ecorce: 7 };
-export const NB_TUILES = 8;
+export const TUILES = { fougere: 0, cycas: 1, conifere: 2, ginkgo: 3, prele: 4, filament: 5, fougereMorte: 6, ecorce: 7, lycopode: 8, podocarpe: 9, osmonde: 10, ecorceMousse: 11,
+  arbreConifere: 12, arbreAraucaria: 13, arbreFeuillu: 14, arbreGinkgo: 15 };   // silhouettes d'arbres entiers (vus de loin)
+const COLONNES = 8, RANGEES = 2;
+/** Coordonnées de texture d'une tuile de l'atlas : [u gauche, u droite, v bas, v haut]. */
+export function uvTuile(tuile, marge = 0.02) {
+  const col = tuile % COLONNES, rang = Math.floor(tuile / COLONNES);
+  return [(col + marge) / COLONNES, (col + 1 - marge) / COLONNES, 1 - (rang + 1 - 0.012) / RANGEES, 1 - (rang + 0.012) / RANGEES];
+}
 
 /** Foliole allongée (utilisée pour les frondes). */
 function foliole(g, x, y, angle, longueur, largeur, couleur) {
@@ -199,11 +205,11 @@ function dessinerFronde(g, x0, alea, opt) {
   }
 }
 
-/** Atlas du feuillage : 8 tuiles côte à côte (voir TUILES). */
+/** Atlas du feuillage : 2 rangées de 8 tuiles (voir TUILES). */
 export function creerAtlasFeuillage() {
-  const c = toile(512 * NB_TUILES, 1024);       // 512 × 1024 pixels par tuile
+  const c = toile(384 * COLONNES, 768 * RANGEES);   // 384 × 768 pixels par tuile
   const g = c.getContext('2d');
-  g.scale(2, 2);                                 // les dessins ci-dessous restent écrits en 256 × 512
+  g.scale(1.5, 1.5);                                // les dessins ci-dessous restent écrits en 256 × 512
   const alea = creerAlea(4242);
   // 0 — fronde de fougère
   dessinerFronde(g, 0, alea, { tige: '#4a5a22', epaisseurTige: 5, paires: 26, longueur: 112, largeur: 9, inclinaison: 0.42,
@@ -293,16 +299,109 @@ export function creerAtlasFeuillage() {
       g.beginPath(); g.moveTo(px, py); g.lineTo(px + (alea() - 0.5) * 8, py + lon); g.stroke();
     }
   }
+  // ----- Seconde rangée (décalée de 512 vers le bas) -----
+  g.save(); g.translate(0, 512);
+  // 8 — lycopodes et mousses : tapis de petites pousses dressées
+  for (let i = 0; i < 150; i++) {
+    const px = 14 + alea() * 228, base = 505 - alea() * 60, haut = 90 + alea() * 300;
+    const teintes = ['#3d7a2c', '#4b8a34', '#2f6524', '#5c9a3a'];
+    g.strokeStyle = teintes[Math.floor(alea() * 4)]; g.lineWidth = 3 + alea() * 3; g.lineCap = 'round';
+    const fx = px + (alea() - 0.5) * 50;
+    g.beginPath(); g.moveTo(px, base); g.quadraticCurveTo(px + (alea() - 0.5) * 20, base - haut * 0.5, fx, base - haut); g.stroke();
+    for (let k = 0; k < 9; k++) {       // petites écailles le long de la pousse
+      const s = k / 9, qx = px + (fx - px) * s, qy = base - haut * s;
+      foliole(g, qx, qy, -0.6 - alea() * 0.5, 9, 2.2, teintes[Math.floor(alea() * 4)]);
+      foliole(g, qx, qy, Math.PI + 0.6 + alea() * 0.5, 9, 2.2, teintes[Math.floor(alea() * 4)]);
+    }
+  }
+  // 9 — rameau de podocarpe : feuilles larges, lancéolées, vert sombre brillant
+  {
+    const x0 = 256, cx = x0 + 128;
+    g.strokeStyle = '#4a3b26'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx, 510); g.quadraticCurveTo(cx - 14, 260, cx + 6, 16); g.stroke();
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8, y = 480 - t * 440, lon = 96 * (1 - t * 0.45);
+      for (const cote of [-1, 1]) {
+        const ang = cote > 0 ? -0.7 + (alea() - 0.5) * 0.3 : Math.PI + 0.7 + (alea() - 0.5) * 0.3;
+        const ex = cx + Math.cos(ang) * lon, ey = y + Math.sin(ang) * lon;
+        g.strokeStyle = '#3f3423'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(cx, y); g.lineTo(ex, ey); g.stroke();
+        for (let k = 1; k <= 7; k++) {
+          const s = k / 7, px = cx + (ex - cx) * s, py = y + (ey - y) * s;
+          const teintes = ['#1f5a2a', '#27672f', '#1a4c24', '#2f7436'];
+          for (const sens of [-1, 1]) foliole(g, px, py, ang + sens * (0.75 + alea() * 0.3), 30 + alea() * 12, 6.5, teintes[Math.floor(alea() * 4)]);
+        }
+      }
+    }
+  }
+  // 10 — fronde d'osmonde : large, à folioles longues et arrondies, vert tendre
+  dessinerFronde(g, 512, alea, { tige: '#5d6a2a', epaisseurTige: 6, paires: 17, longueur: 118, largeur: 15, inclinaison: 0.5,
+    couleurs: ['#4f9230', '#5ea038', '#43842a', '#6aae42'] });
+  // 11 — écorce couverte de mousse (opaque)
+  {
+    const x0 = 768;
+    g.fillStyle = '#3c3324'; g.fillRect(x0, 0, 256, 512);
+    for (let i = 0; i < 420; i++) {
+      const px = x0 + alea() * 256, py = alea() * 512, v = 36 + Math.floor(alea() * 50);
+      g.strokeStyle = `rgb(${v + 26},${v + 12},${v - 6})`; g.lineWidth = 1 + alea() * 3;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px + (alea() - 0.5) * 8, py + 20 + alea() * 60); g.stroke();
+    }
+    for (let i = 0; i < 260; i++) {
+      const teintes = ['rgba(52,96,36,0.75)', 'rgba(70,116,44,0.7)', 'rgba(40,78,30,0.8)'];
+      g.fillStyle = teintes[Math.floor(alea() * 3)];
+      g.beginPath(); g.ellipse(x0 + alea() * 256, alea() * 512, 6 + alea() * 16, 4 + alea() * 9, alea() * 3, 0, 6.3); g.fill();
+    }
+  }
+  // 12 à 15 — silhouettes d'arbres entiers : de loin, un arbre est dessiné avec deux panneaux croisés
+  {
+    const verts = ['#1f5226', '#286030', '#1a4520', '#33703a'];
+    const tronc = (x0, haut, l0) => { g.strokeStyle = '#4a3826'; g.lineCap = 'butt';
+      for (let i = 0; i < 12; i++) { g.lineWidth = l0 * (1 - i / 13) + 1.5; g.beginPath(); g.moveTo(x0 + 128, 512 - i * (512 - haut) / 12); g.lineTo(x0 + 128, 512 - (i + 1) * (512 - haut) / 12 - 1); g.stroke(); } };
+    // 12 — conifère conique
+    tronc(1024, 14, 13);
+    for (let i = 0; i < 17; i++) {
+      const y = 410 - i * 23, w = 112 * (1 - i / 18.5) + 6;
+      for (const cote of [-1, 1]) for (let k = 0; k < 13; k++) {
+        const ang = cote > 0 ? 0.18 + alea() * 0.42 : Math.PI - 0.18 - alea() * 0.42;
+        foliole(g, 1024 + 128, y + (alea() - 0.5) * 14, ang, w * (0.45 + alea() * 0.6), 7 + alea() * 4, verts[Math.floor(alea() * 4)]);
+      }
+    }
+    // 13 — araucaria : fût nu, branches en chandelier dans la moitié haute
+    tronc(1280, 22, 12);
+    for (let i = 0; i < 8; i++) {
+      const y = 270 - i * 30, w = 118 - i * 11;
+      for (const cote of [-1, 1]) for (let k = 0; k < 3; k++) {
+        const ex = 1280 + 128 + cote * w * (0.7 + alea() * 0.3), ey = y - 26 - alea() * 14;
+        g.strokeStyle = verts[Math.floor(alea() * 4)]; g.lineWidth = 12 + alea() * 5; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(1280 + 128, y); g.quadraticCurveTo(1280 + 128 + cote * w * 0.55, y + 18, ex, ey); g.stroke();
+        for (let q = 0; q < 6; q++) foliole(g, ex - cote * q * w * 0.12, ey + q * 5, -1.57 + (alea() - 0.5), 13, 4, verts[Math.floor(alea() * 4)]);
+      }
+    }
+    // 14 et 15 — grands arbres à couronne ronde (podocarpe sombre, ginkgo vert-jaune)
+    const couronneRonde = (x0, palette, nb, rayon) => {
+      tronc(x0, 250, 15);
+      g.strokeStyle = '#4a3826'; g.lineWidth = 6; g.lineCap = 'round';
+      for (const dx of [-70, -32, 28, 68]) { g.beginPath(); g.moveTo(x0 + 128, 300); g.quadraticCurveTo(x0 + 128 + dx * 0.4, 230, x0 + 128 + dx, 150); g.stroke(); }
+      for (let i = 0; i < nb; i++) {
+        const a = alea() * 6.283, r = Math.sqrt(alea()), px = x0 + 128 + Math.cos(a) * r * 116, py = 172 + Math.sin(a) * r * 158;
+        const clair = py < 150 ? 1 : 0;             // le haut de la couronne reçoit plus de lumière
+        g.fillStyle = palette[Math.min(palette.length - 1, Math.floor(alea() * 3) + clair)];
+        g.beginPath(); g.ellipse(px, py, rayon * (0.6 + alea() * 0.8), rayon * (0.4 + alea() * 0.5), alea() * 3, 0, 6.3); g.fill();
+      }
+    };
+    couronneRonde(1536, ['#17401e', '#1f5226', '#286030', '#34743a'], 330, 15);
+    couronneRonde(1792, ['#4f7a26', '#63902e', '#7aa638', '#93ba48'], 250, 12);
+  }
+  g.restore();
   // Ombrage peint : chaque feuillage est plus sombre vers sa base et légèrement moucheté,
   // ce qui donne du volume même sous une lumière plate.
   g.globalCompositeOperation = 'source-atop';
-  for (let t = 0; t < 7; t++) {
-    const grad = g.createLinearGradient(0, 512, 0, 0);
+  for (const t of [0, 1, 2, 3, 4, 5, 6, 8, 9, 10]) {
+    const tx = (t % COLONNES) * 256, ty = Math.floor(t / COLONNES) * 512;
+    const grad = g.createLinearGradient(0, ty + 512, 0, ty);
     grad.addColorStop(0, 'rgba(0,10,0,0.42)'); grad.addColorStop(0.55, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(255,255,160,0.10)');
-    g.fillStyle = grad; g.fillRect(t * 256, 0, 256, 512);
+    g.fillStyle = grad; g.fillRect(tx, ty, 256, 512);
     for (let i = 0; i < 260; i++) {
       g.fillStyle = alea() > 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,190,0.07)';
-      g.beginPath(); g.arc(t * 256 + alea() * 256, alea() * 512, 3 + alea() * 9, 0, 6.3); g.fill();
+      g.beginPath(); g.arc(tx + alea() * 256, ty + alea() * 512, 3 + alea() * 9, 0, 6.3); g.fill();
     }
   }
   g.globalCompositeOperation = 'source-over';

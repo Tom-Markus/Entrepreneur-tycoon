@@ -25,12 +25,19 @@ button, select, input { font: inherit; color: inherit; }
 .besoin.bas .jauge i { background: #e2734f; }
 #souffle { height: 2px; margin-top: 3px; background: rgba(255, 255, 255, 0.1); }
 #souffle i { display: block; height: 100%; background: var(--ocre); transform-origin: left; }
-#etat { position: absolute; left: 26px; top: 20px; font-size: 12px; letter-spacing: 0.06em; line-height: 1.55; }
+#minicarte { position: absolute; left: 22px; top: 18px; width: 150px; height: 150px; border: 1px solid rgba(241, 234, 217, 0.35); border-radius: 4px; overflow: hidden; background: #1a2a30; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45); transition: width 0.25s, height 0.25s; }
+#minicarte canvas { width: 100%; height: 100%; display: block; }
+#minicarte b { position: absolute; top: 3px; left: 0; right: 0; text-align: center; font: 600 11px var(--sans); letter-spacing: 0.1em; }
+#minicarte small { position: absolute; bottom: 3px; right: 6px; font-size: 10px; opacity: 0.8; }
+#hud.carte-grande #minicarte { width: min(460px, 62vh); height: min(460px, 62vh); }
+#hud.carte-grande #etat { left: calc(min(460px, 62vh) + 40px); }
+#hud.carte-grande #boussole { opacity: 0; }
+#etat { position: absolute; left: 190px; top: 20px; transition: left 0.25s; font-size: 12px; letter-spacing: 0.06em; line-height: 1.55; }
 #etat .stade { font-family: var(--serif); font-size: 18px; letter-spacing: 0.04em; }
 #etat .jauge { width: 130px; margin: 4px 0 6px; height: 3px; }
 #etat .jauge i { background: var(--ocre); }
 #etat small { opacity: 0.75; font-size: 11.5px; }
-#boussole { position: absolute; top: 18px; left: 50%; width: 320px; height: 26px; margin-left: -160px; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); }
+#boussole { transition: opacity 0.25s; position: absolute; top: 18px; left: 50%; width: 320px; height: 26px; margin-left: -160px; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); }
 #boussole span { position: absolute; left: 50%; top: 2px; width: 40px; margin-left: -20px; text-align: center; font-size: 12px; letter-spacing: 0.1em; }
 #boussole span.cardinal { font-family: var(--serif); font-size: 15px; }
 #boussole span.repere { color: var(--ocre); font-size: 14px; }
@@ -41,7 +48,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin: 0 3px; b
 #observation b { font-family: var(--serif); font-weight: 400; font-size: 16px; display: block; }
 #observation .jauge { width: 150px; margin: 5px 0 0 auto; }
 #observation .jauge i { background: var(--ocre); }
-#notes { position: absolute; right: 26px; bottom: 118px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+#notes { position: absolute; right: 26px; bottom: 150px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .note { padding: 7px 13px; background: var(--fond); border-left: 2px solid var(--ocre); font-size: 13px; max-width: 360px; animation: entree 0.35s ease-out; transition: opacity 0.6s; text-shadow: none; }
 @keyframes entree { from { opacity: 0; transform: translateX(14px); } }
 #annonce { position: absolute; left: 0; right: 0; top: 21%; text-align: center; opacity: 0; transition: opacity 0.8s; }

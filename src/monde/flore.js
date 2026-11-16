@@ -4,7 +4,7 @@
 // et des « cartes » (bandes souples portant une image de fronde ou de rameau).
 import * as THREE from 'three';
 import { creerAlea, Bruit } from '../noyau/maths.js';
-import { TUILES, NB_TUILES } from '../rendu/textures.js';
+import { TUILES, uvTuile } from '../rendu/textures.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 class Fabrique {
@@ -13,7 +13,7 @@ class Fabrique {
 
   /** Tronc ou branche : anneaux de `cotes` côtés le long d'une liste de points {x,y,z,r,vent}. */
   tube(points, cotes, tuile = TUILES.ecorce) {
-    const u0 = (tuile + 0.03) / NB_TUILES, u1 = (tuile + 0.97) / NB_TUILES, base = this.n;
+    const [u0, u1, v0, v1] = uvTuile(tuile, 0.03), base = this.n;
     const axe = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
     for (let i = 0; i < points.length; i++) {
       const p = points[i], q = points[Math.min(i + 1, points.length - 1)], o = points[Math.max(i - 1, 0)];
@@ -25,7 +25,7 @@ class Fabrique {
         const nx = a.x * c + b.x * s, ny = a.y * c + b.y * s, nz = a.z * c + b.z * s;
         this.pos.push(p.x + nx * p.r, p.y + ny * p.r, p.z + nz * p.r);
         this.nor.push(nx, ny, nz);
-        this.uv.push(u0 + (u1 - u0) * (k / cotes), i % 2 ? 0.98 : 0.02);   // la texture d'écorce se replie en miroir
+        this.uv.push(u0 + (u1 - u0) * (k / cotes), i % 2 ? v1 : v0);   // la texture d'écorce se replie en miroir
         this.vent.push(p.vent || 0);
         const t = p.teinte === undefined ? 1 : p.teinte;
         this.col.push(t, t, t); this.feuille.push(0);
@@ -45,7 +45,7 @@ class Fabrique {
    * croisées (roulis 0 et π/2) donnent une branche qui a du volume sous tous les angles.
    */
   carte(x, y, z, dx, dy, dz, longueur, largeur, segments, courbure, tuile, vent0, vent1, angleAxe = null, roulis = 0) {
-    const u0 = (tuile + 0.02) / NB_TUILES, u1 = (tuile + 0.98) / NB_TUILES, base = this.n;
+    const [u0, u1, v0, v1] = uvTuile(tuile), base = this.n;
     let sx, sy = 0, sz;                            // axe de largeur
     if (angleAxe !== null) { sx = Math.cos(angleAxe); sz = Math.sin(angleAxe); }
     else { const l = Math.hypot(dx, dz) || 1; sx = -dz / l; sz = dx / l; }
@@ -61,7 +61,7 @@ class Fabrique {
       for (const cote of [-1, 1]) {
         this.pos.push(px + sx * w * cote, py + sy * w * cote, pz + sz * w * cote);
         this.nor.push(0, 1, 0);
-        this.uv.push(cote < 0 ? u0 : u1, 0.01 + 0.98 * t);
+        this.uv.push(cote < 0 ? u0 : u1, v0 + (v1 - v0) * t);
         this.vent.push(vent0 + (vent1 - vent0) * t);
         this.col.push(1, 1, 1); this.feuille.push(1);
       }
@@ -104,6 +104,13 @@ function couronne(f, alea, y, n, elevation, longueur, largeur, segments, courbur
   }
 }
 
+/** Arbre vu de loin : deux panneaux verticaux croisés portant la silhouette complète de l'arbre (4 triangles). */
+function imposteur(tuile, largeur, hauteur) {
+  const f = new Fabrique();
+  for (const angle of [0, Math.PI / 2]) f.carte(0, -0.5, 0, 0, 1, 0, hauteur + 0.5, largeur, 1, 0, tuile, 0, 0.1, angle);
+  return f.geometrie(0.3);
+}
+
 /** Branche de conifère : une carte à plat + une carte de chant, pour avoir du volume. */
 function branche(f, y, a, pente, longueur, largeur, segments, courbure, vent, croisee) {
   const c = Math.cos(pente), dx = Math.cos(a) * c, dy = Math.sin(pente), dz = Math.sin(a) * c;
@@ -134,6 +141,7 @@ export const FLORE = {
   },
   /** Ginkgo : grand arbre à feuilles en éventail, large couronne. */
   ginkgo(simple) {
+    if (simple) return imposteur(TUILES.arbreGinkgo, 17, 15.5);
     const f = new Fabrique(), alea = creerAlea(13), h = 14;
     f.tube([{ x: 0, y: -0.5, z: 0, r: 0.55, teinte: 0.55 }, { x: 0.15, y: h * 0.3, z: 0.1, r: 0.4, vent: 0.01, teinte: 0.8 }, { x: -0.15, y: h * 0.62, z: 0.15, r: 0.26, vent: 0.04 }, { x: 0, y: h * 0.95, z: 0, r: 0.08, vent: 0.1 }], simple ? 4 : 7);
     const nb = simple ? 7 : 12;
@@ -142,11 +150,11 @@ export const FLORE = {
       const dx = Math.cos(a), dz = Math.sin(a), ex = dx * lon, ey = lon * 0.4, ez = dz * lon;
       if (!simple) f.tube([{ x: 0, y, z: 0, r: 0.15, vent: 0.03, teinte: 0.8 }, { x: ex * 0.55, y: y + ey * 0.45, z: ez * 0.55, r: 0.09, vent: 0.1 }, { x: ex, y: y + ey, z: ez, r: 0.03, vent: 0.2 }], 4);
       // bouquets de feuilles : petites cartes orientées dans tous les sens le long de la branche
-      const cartes = simple ? 2 : 7;
+      const cartes = simple ? 2 : 9;
       for (let k = 0; k < cartes; k++) {
-        const s = 0.3 + (k / cartes) * 0.78, b = a + (alea() - 0.5) * 2.6, e = (alea() - 0.25) * 1.1;
+        const s = 0.3 + (k / cartes) * 0.78, b = a + (alea() - 0.5) * 2.6, e = (alea() - 0.4) * 0.7;
         f.carte(ex * s + (alea() - 0.5), y + ey * s - 0.6, ez * s + (alea() - 0.5), Math.cos(b) * Math.cos(e), Math.sin(e), Math.sin(b) * Math.cos(e),
-          simple ? 4.6 : 3.1, simple ? 3.8 : 2.5, 1, 0.12, TUILES.ginkgo, 0.15, 0.4, null, simple ? 0 : alea() * 3.14);
+          simple ? 4.6 : 2.6, simple ? 3.8 : 2.2, simple ? 1 : 2, 0.3, TUILES.ginkgo, 0.15, 0.4, null, simple ? 0 : (alea() - 0.5) * 1.2);
       }
     }
     if (!simple) for (let k = 0; k < 8; k++) {      // cime
@@ -157,6 +165,7 @@ export const FLORE = {
   },
   /** Araucaria : long fût nu, branches en verticilles redressées à leur extrémité. */
   araucaria(simple) {
+    if (simple) return imposteur(TUILES.arbreAraucaria, 16, 28);
     const f = new Fabrique(), alea = creerAlea(14), h = 27;
     f.tube([{ x: 0, y: -0.5, z: 0, r: 0.7, teinte: 0.55 }, { x: 0, y: h * 0.4, z: 0, r: 0.48, vent: 0.005, teinte: 0.85 }, { x: 0.1, y: h * 0.8, z: 0, r: 0.28, vent: 0.03 }, { x: 0, y: h, z: 0, r: 0.08, vent: 0.07 }], simple ? 5 : 8);
     const etages = simple ? 3 : 9;
@@ -172,9 +181,10 @@ export const FLORE = {
   },
   /** Grand conifère conique de type séquoia (Cupressacées primitives). */
   sequoia(simple) {
+    if (simple) return imposteur(TUILES.arbreConifere, 18, 36.5);
     const f = new Fabrique(), alea = creerAlea(15), h = 36;
     f.tube([{ x: 0, y: -0.6, z: 0, r: 1.25, teinte: 0.5 }, { x: 0, y: 2.5, z: 0, r: 0.9, teinte: 0.75 }, { x: 0, y: h * 0.5, z: 0, r: 0.52, vent: 0.01 }, { x: 0, y: h, z: 0, r: 0.06, vent: 0.06 }], simple ? 4 : 9);
-    const etages = simple ? 5 : 14;
+    const etages = simple ? 5 : 12;
     for (let e = 0; e < etages; e++) {
       const t = 0.2 + (e / (etages - 1)) * 0.79, y = h * t, lon = 8.2 * Math.pow(1 - t, 0.75) + 1.4, nb = simple ? 3 : 5;
       for (let i = 0; i < nb; i++) {
@@ -197,10 +207,62 @@ export const FLORE = {
     for (let i = 0; i < nb; i++) f.carte(0, -0.1, 0, 0.03 * i, 1, 0.02, 2.1, 1.25, 1, 0, TUILES.prele, 0.1, 0.5, (i / nb) * Math.PI);
     return f.geometrie(0.15);
   },
+  /** Podocarpe : grand conifère à feuilles larges, dont la couronne dense forme la voûte de la forêt vierge. */
+  podocarpe(simple) {
+    if (simple) return imposteur(TUILES.arbreFeuillu, 21, 25);
+    const f = new Fabrique(), alea = creerAlea(21), h = 23;
+    f.tube([{ x: 0, y: -0.6, z: 0, r: 1.15, teinte: 0.5 }, { x: 0.1, y: 1.6, z: 0, r: 0.7, teinte: 0.75 }, { x: 0.3, y: h * 0.45, z: 0.2, r: 0.5, vent: 0.01 }, { x: -0.2, y: h * 0.8, z: 0, r: 0.3, vent: 0.04 }, { x: 0, y: h, z: 0, r: 0.08, vent: 0.1 }], simple ? 5 : 8, TUILES.ecorceMousse);
+    const nb = simple ? 8 : 11;
+    for (let i = 0; i < nb; i++) {
+      const t = 0.5 + (i / nb) * 0.47, y = h * t, a = i * 2.39 + alea() * 0.6, lon = 8.5 * (1.25 - t) + 2.5;
+      const dx = Math.cos(a), dz = Math.sin(a), ex = dx * lon, ey = lon * 0.28, ez = dz * lon;
+      if (!simple) f.tube([{ x: 0, y, z: 0, r: 0.2, vent: 0.03, teinte: 0.75 }, { x: ex * 0.5, y: y + ey * 0.6, z: ez * 0.5, r: 0.12, vent: 0.08 }, { x: ex, y: y + ey, z: ez, r: 0.04, vent: 0.18 }], 4, TUILES.ecorceMousse);
+      const cartes = simple ? 3 : 6;
+      for (let k = 0; k < cartes; k++) {
+        const s = 0.25 + (k / cartes) * 0.85, b = a + (alea() - 0.5) * 3, e = (alea() - 0.35) * 0.9;
+        f.carte(ex * s + (alea() - 0.5) * 1.5, y + ey * s + (alea() - 0.3) * 1.2, ez * s + (alea() - 0.5) * 1.5, Math.cos(b) * Math.cos(e), Math.sin(e), Math.sin(b) * Math.cos(e),
+          simple ? 5.2 : 3.9, simple ? 4.2 : 3.0, simple ? 1 : 2, 0.25, TUILES.podocarpe, 0.12, 0.35, null, simple ? 0 : (alea() - 0.5) * 1.6);
+      }
+    }
+    return f.geometrie(0.6);
+  },
+  /** Williamsonia (Bennettitale) : tronc grêle coiffé d'un bouquet de feuilles, allure de petit palmier. */
+  williamsonia(simple) {
+    const f = new Fabrique(), alea = creerAlea(22), h = 2.7;
+    f.tube([{ x: 0, y: -0.2, z: 0, r: 0.16, teinte: 0.6 }, { x: 0.12, y: h * 0.5, z: 0.05, r: 0.12, vent: 0.04 }, { x: 0.2, y: h, z: 0, r: 0.11, vent: 0.12 }], simple ? 4 : 6);
+    couronne(f, alea, h, simple ? 8 : 14, 0.45, 1.6, 0.5, simple ? 2 : 4, 0.7, TUILES.cycas, 0.4);
+    if (!simple) couronne(f, alea, h + 0.05, 6, 1.1, 1.1, 0.4, 3, 0.3, TUILES.cycas, 0.3);
+    for (let i = 0; i < f.n; i++) if (f.feuille[i]) { f.pos[i * 3] += 0.2; }      // la couronne suit l'inclinaison du tronc
+    return f.geometrie(0.35);
+  },
+  /** Osmonde : grande fougère en touffe, aussi haute qu'un jeune dinosaure. */
+  osmonde(simple) {
+    const f = new Fabrique(), alea = creerAlea(23);
+    couronne(f, alea, 0, simple ? 5 : 9, 0.95, 2.0, simple ? 1.0 : 0.82, simple ? 2 : 4, 0.72, TUILES.osmonde, 0.55);
+    if (!simple) couronne(f, alea, 0.05, 5, 1.3, 1.5, 0.6, 3, 0.3, TUILES.osmonde, 0.45);
+    return f.geometrie(0.5);
+  },
+  /** Arbuste : jeune conifère buissonnant du sous-bois. */
+  arbuste(simple) {
+    const f = new Fabrique(), alea = creerAlea(24);
+    f.tube([{ x: 0, y: -0.1, z: 0, r: 0.09, teinte: 0.6 }, { x: 0.04, y: 1.2, z: 0, r: 0.05, vent: 0.08 }, { x: 0, y: 2.3, z: 0.03, r: 0.02, vent: 0.2 }], 4);
+    const nb = simple ? 6 : 12;
+    for (let i = 0; i < nb; i++) {
+      const t = i / nb, a = i * 2.4 + alea();
+      branche(f, 0.25 + t * 1.9, a, 0.35 + alea() * 0.3, 1.7 * (1.1 - t * 0.6), simple ? 1.2 : 0.95, 2, 0.25, 0.4, !simple);
+    }
+    return f.geometrie(0.5);
+  },
+  /** Lycopodes et mousses : petit tapis de pousses dressées. */
+  lycopode(simple) {
+    const f = new Fabrique(), nb = simple ? 2 : 3;
+    for (let i = 0; i < nb; i++) f.carte(0, -0.05, 0, 0.02 * i, 1, 0.02, 0.5, 1.15, 1, 0, TUILES.lycopode, 0.05, 0.35, (i / nb) * Math.PI);
+    return f.geometrie(0.1);
+  },
   /** Tronc mort couché. */
   troncMort(simple) {
     const f = new Fabrique();
-    f.tube([{ x: -3.2, y: 0.3, z: 0, r: 0.38 }, { x: 0, y: 0.36, z: 0.1, r: 0.34 }, { x: 3.4, y: 0.28, z: -0.1, r: 0.22 }], simple ? 4 : 7);
+    f.tube([{ x: -3.2, y: 0.3, z: 0, r: 0.38 }, { x: 0, y: 0.36, z: 0.1, r: 0.34 }, { x: 3.4, y: 0.28, z: -0.1, r: 0.22 }], simple ? 4 : 7, TUILES.ecorceMousse);
     return f.geometrie();
   },
   /** Rocher : sphère déformée, mousse sur le dessus (couleurs par sommet). */

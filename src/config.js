@@ -132,14 +132,14 @@ export const CONFIG = {
         nom: 'Bas', echelle: 0.6, pixelRatioMax: 1, msaa: 0,
         cascades: 0, tailleOmbre: 512, porteeOmbre: 60, frequenceOmbres: 2,
         bloom: false, ao: false, dof: false, rayons: false, reflets: false,
-        nuagesPas: 1, distanceVue: 420, densiteVegetation: 0.4, porteeProche: 0.6,
+        nuagesPas: 1, distanceVue: 420, densiteVegetation: 0.4, porteeProche: 0.45,
         particules: 0.4, normalesTerrain: false, caustiques: false,
       },
       moyen: {
         nom: 'Moyen', echelle: 0.8, pixelRatioMax: 1, msaa: 2,
         cascades: 2, tailleOmbre: 1024, porteeOmbre: 90, frequenceOmbres: 2,
         bloom: true, ao: false, dof: false, rayons: true, reflets: true, refletsEco: true,
-        nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.65, porteeProche: 0.8,
+        nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.6, porteeProche: 0.6,
         particules: 0.7, normalesTerrain: true, caustiques: true,
       },
       eleve: {
@@ -176,7 +176,7 @@ export const TOUCHES_DEFAUT = {
   morsure: ['Souris0'], queue: ['Souris2', 'KeyF'],
   rugir: ['KeyR'], interagir: ['KeyE'], reposer: ['KeyX'],
   odorat: ['KeyV'], photo: ['KeyP'], carnet: ['KeyJ'],
-  marquer: ['KeyT'], nid: ['KeyN'], cinematique: ['KeyC'],
+  marquer: ['KeyT'], nid: ['KeyN'], cinematique: ['KeyC'], carte: ['KeyM'],
 };
 
 export const NOMS_ACTIONS = {
@@ -184,5 +184,5 @@ export const NOMS_ACTIONS = {
   sprint: 'Courir', allure: 'Marche lente / petite foulée', esquive: 'Esquiver', morsure: 'Mordre', queue: 'Coup de queue',
   rugir: 'Rugir', interagir: 'Boire / manger', reposer: 'Se reposer / dormir',
   odorat: 'Vision olfactive', photo: 'Mode photo', carnet: 'Carnet de bord',
-  marquer: 'Marquer le territoire', nid: 'Établir le nid', cinematique: 'Caméra cinématique',
+  marquer: 'Marquer le territoire', nid: 'Établir le nid', cinematique: 'Caméra cinématique', carte: 'Agrandir / réduire la mini-carte',
 };

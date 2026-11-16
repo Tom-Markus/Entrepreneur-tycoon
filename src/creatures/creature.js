@@ -17,6 +17,7 @@ const X = new THREE.Vector3(1, 0, 0);
 export class BanqueCreatures {
   constructor(ombres, texPeau, atlas) {
     this.ombres = ombres; this.texPeau = texPeau; this.modeles = {};
+    this.uCiel = { value: new THREE.Color(0.3, 0.35, 0.4) };     // lumière du ciel, partagée par toutes les peaux
     this.matFilaments = ombres.enregistrer(new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.35, side: THREE.DoubleSide }));
   }
 
@@ -33,12 +34,12 @@ export class BanqueCreatures {
     mat.userData.cle = 'peau';
     mat.userData.uniformes = u;
     mat.userData.surCompilation = (shader) => {
-      shader.uniforms.uBoue = u.uBoue; shader.uniforms.uBlessure = u.uBlessure;
+      shader.uniforms.uBoue = u.uBoue; shader.uniforms.uBlessure = u.uBlessure; shader.uniforms.uCiel = this.uCiel;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float aHauteur;\nvarying float vHauteur;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHauteur = aHauteur;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vHauteur;\nuniform float uBoue, uBlessure;')
+        .replace('#include <common>', '#include <common>\nvarying float vHauteur;\nuniform float uBoue, uBlessure;\nuniform vec3 uCiel;')
         .replace('#include <map_fragment>', `#include <map_fragment>
           float nb = texture2D(map, vMapUv * 0.13).r;
           // Marbrures : larges variations de teinte qui cassent l'aspect uniforme de la peau
@@ -51,6 +52,10 @@ export class BanqueCreatures {
           // Blessures : fines griffures sombres sur les flancs (sobres, sans effusion)
           float griffure = uBlessure * smoothstep(0.9, 0.93, fract(vMapUv.x * 0.31 + nb * 1.4)) * smoothstep(0.35, 0.8, vHauteur) * step(vHauteur, 1.2);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.15, 0.022, 0.016), griffure * 0.8);`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          // Liseré : sur les bords de la silhouette, la peau accroche la lumière du ciel (donne du volume)
+          float bord = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0);
+          totalEmissiveRadiance += (diffuseColor.rgb * 1.5 + 0.02) * uCiel * bord;`)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + (0.82 - ecaille) * 0.9, 0.35, 1.0);\nroughnessFactor = mix(roughnessFactor, 0.45, clamp(boue, 0.0, 1.0) * 0.5);');
     };
     return this.ombres.enregistrer(mat);
@@ -114,7 +119,7 @@ export class Creature {
         P, os, parentAvant: P.avant, cote: P.cote,
         emboiture: os[0].userData.repos.clone(),
         d0: os[1].userData.repos.clone().normalize(), d1: os[2].userData.repos.clone().normalize(), d2: os[3].userData.repos.clone().normalize(),
-        neutre: new THREE.Vector3(P.pts[3][0], 0, P.pts[3][2]), piedY: P.pts[3][1],
+        neutre: new THREE.Vector3(P.pts[3][0], 0, P.pts[3][2] + P.cote * 0.07 * I.hanche * (P.avant ? -1 : 1)), piedY: P.pts[3][1],
         wx: 0, wy: 0, wz: 0, dx: 0, dy: 0, dz: 0, appui: true, init: false, s: 0,
       };
     });
