@@ -109,7 +109,8 @@ async function demarrer() {
   if (r.touches) Object.assign(jeu.entrees.touches, r.touches);
   if (r.sensibilite) jeu.cameraJeu.sensibilite = r.sensibilite;
   jeu.cameraJeu.inverserY = !!r.inverserY;
-  if (r.dynamique !== undefined) jeu.qualite.dynamique = r.dynamique;
+  // (les anciennes sauvegardes de réglages n'avaient qu'un oui/non « dynamique »)
+  jeu.qualite.choisirResolution(r.resolution || (r.dynamique === false ? 'nette' : 'auto'));
   const forcee = parametres.get('qualite');
   jeu.qualite.appliquer(CONFIG.qualite.niveaux[forcee] ? forcee : r.qualite || 'moyen');
 
@@ -155,13 +156,13 @@ jeu.redimensionner = () => {
   jeu.renderer.setSize(innerWidth, innerHeight);
   jeu.camera.aspect = innerWidth / innerHeight; jeu.camera.updateProjectionMatrix();
   jeu.ombres.redimensionner();
-  const k = pr * q.echelle * (jeu.qualite.dynamique ? jeu.qualite.echelleDyn : 1);
+  const k = pr * q.echelle * jeu.qualite.echelleActive;
   jeu.post.redimensionner(innerWidth * k, innerHeight * k);
 };
 
 jeu.enregistrerReglages = () => {
   const r = jeu.reglages;
-  Object.assign(r, { qualite: jeu.qualite.niveau, dynamique: jeu.qualite.dynamique, volumes: jeu.audio.volumes, touches: jeu.entrees.touches,
+  Object.assign(r, { qualite: jeu.qualite.niveau, resolution: jeu.qualite.resolution, dynamique: jeu.qualite.dynamique, volumes: jeu.audio.volumes, touches: jeu.entrees.touches,
     sensibilite: jeu.cameraJeu.sensibilite, inverserY: jeu.cameraJeu.inverserY });
   Sauvegarde.ecrireReglages(r);
 };

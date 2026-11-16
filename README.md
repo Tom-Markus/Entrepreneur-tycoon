@@ -87,7 +87,7 @@ Au premier lancement, un test de 3 secondes choisit le niveau adapté à votre a
 
 ![Niveau Ultra](docs/ultra.png)
 
-La **résolution dynamique** (activée par défaut) baisse légèrement la netteté quand le jeu passe sous 30 images/s. L'option « Afficher les images par seconde » montre aussi le nombre de commandes de dessin et de triangles.
+Le réglage **Résolution de l'image** est indépendant du niveau de qualité et propose cinq modes : « Automatique » (baisse la résolution quand le jeu passe sous 30 images/s, jusqu'à 55 %), « Automatique modérée » (pareil, mais jamais sous 80 %), « Nette » (100 % fixe), « Douce » (80 % fixe) et « Très douce » (62 % fixe). Les modes « Douce » donnent une image adoucie même sur une machine rapide. L'option « Afficher les images par seconde » montre aussi le nombre de commandes de dessin et de triangles.
 
 ## Organisation du code
 

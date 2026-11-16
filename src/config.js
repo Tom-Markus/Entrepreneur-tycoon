@@ -167,6 +167,16 @@ export const CONFIG = {
       },
     },
     ordre: ['bas', 'moyen', 'eleve', 'ultra'],
+    // Résolution de l'image (réglage séparé du niveau de qualité).
+    // auto : la résolution baisse toute seule quand les images/s chutent, sans descendre sous `plancher`.
+    // fixe : résolution constante ; en dessous de 100 %, l'image est plus douce (et le jeu plus fluide).
+    resolutions: {
+      auto:      { nom: 'Automatique', aide: 's\'adapte aux performances, jusqu\'à 55 %', auto: true, plancher: 0.55 },
+      autoDoux:  { nom: 'Automatique modérée', aide: 's\'adapte, sans descendre sous 80 %', auto: true, plancher: 0.8 },
+      nette:     { nom: 'Nette', aide: '100 %, toujours', auto: false, fixe: 1 },
+      douce:     { nom: 'Douce', aide: '80 %, image légèrement adoucie', auto: false, fixe: 0.8 },
+      tresDouce: { nom: 'Très douce', aide: '62 %, image nettement adoucie', auto: false, fixe: 0.62 },
+    },
     dureeBenchmark: 3,           // secondes, au premier lancement
     // Résolution dynamique : on réduit la résolution si les images/s chutent.
     fpsCible: 30, echelleDynMin: 0.55, pasEchelleDyn: 0.05,

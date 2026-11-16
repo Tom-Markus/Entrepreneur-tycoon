@@ -154,7 +154,8 @@ export class Interface {
       <h3>Graphismes</h3>
       <div class="ligne"><div>Qualité<small>« Bas » est prévu pour un Chromebook. « Ultra » pousse tout au maximum : réservé aux PC puissants.</small></div>
         <select data-r="qualite">${Q.ordre.map((n) => `<option value="${n}" ${n === jeu.qualite.niveau ? 'selected' : ''}>${Q.niveaux[n].nom} — ${Q.niveaux[n].description}</option>`).join('')}</select></div>
-      <div class="ligne"><div>Résolution dynamique<small>Réduit la netteté quand les images/s chutent.</small></div>${case_('dynamique', jeu.qualite.dynamique)}</div>
+      <div class="ligne"><div>Résolution de l'image<small>« Automatique » baisse la résolution quand le jeu ralentit. Les modes « Douce » la fixent plus bas : image adoucie, même sur une machine rapide.</small></div>
+        <select data-r="resolution">${Object.keys(Q.resolutions).map((id) => `<option value="${id}" ${id === jeu.qualite.resolution ? 'selected' : ''}>${Q.resolutions[id].nom} — ${Q.resolutions[id].aide}</option>`).join('')}</select></div>
       <div class="ligne"><div>Afficher les images par seconde</div>${case_('fps', r.fps)}</div>
       <div class="ligne"><div>Test de performance<small>Choisit automatiquement le niveau adapté.</small></div><button class="bouton petit" data-a="mesurer">Relancer le test (3 s)</button></div>
       <h3>Audio</h3>
@@ -172,7 +173,7 @@ export class Interface {
     o.oninput = (ev) => {
       const id = ev.target.dataset.r, v = ev.target.value; if (!id) return;
       if (id === 'qualite') jeu.qualite.appliquer(v);
-      else if (id === 'dynamique') { jeu.qualite.dynamique = v === '1'; jeu.qualite.echelleDyn = 1; jeu.redimensionner(); }
+      else if (id === 'resolution') jeu.qualite.choisirResolution(v);
       else if (id === 'fps') r.fps = v === '1';
       else if (id === 'sensibilite') jeu.cameraJeu.sensibilite = +v;
       else if (id === 'inverserY') jeu.cameraJeu.inverserY = v === '1';
@@ -404,6 +405,6 @@ export class Interface {
     const o = $('#observation'), enc = jeu.carnet.enCours;
     if (enc) { o.classList.remove('cache'); o.querySelector('b').textContent = enc.espece; o.querySelector('span').textContent = enc.titre; o.querySelector('.jauge i').style.transform = `scaleX(${enc.ratio.toFixed(2)})`; } else o.classList.add('cache');
     const f = $('#fps');
-    if (jeu.reglages.fps) { f.classList.remove('cache'); f.textContent = `${Math.round(jeu.qualite.fps)} img/s · ${jeu.infosRendu.appels} dessins · ${(jeu.infosRendu.triangles / 1000).toFixed(0)} k triangles · résolution ${Math.round(jeu.qualite.echelleDyn * jeu.qualite.reglages.echelle * 100)} %`; } else f.classList.add('cache');
+    if (jeu.reglages.fps) { f.classList.remove('cache'); f.textContent = `${Math.round(jeu.qualite.fps)} img/s · ${jeu.infosRendu.appels} dessins · ${(jeu.infosRendu.triangles / 1000).toFixed(0)} k triangles · résolution ${Math.round(jeu.qualite.echelleActive * jeu.qualite.reglages.echelle * 100)} %`; } else f.classList.add('cache');
   }
 }

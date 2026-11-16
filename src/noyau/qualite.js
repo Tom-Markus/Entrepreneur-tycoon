@@ -8,11 +8,23 @@ const Q = CONFIG.qualite;
 export class Qualite {
   constructor(jeu) {
     this.jeu = jeu; this.niveau = 'moyen';
-    this.dynamique = true; this.echelleDyn = 1;
+    this.resolution = 'auto';              // voir config.qualite.resolutions
+    this.dynamique = true; this.plancher = Q.echelleDynMin; this.echelleFixe = 1; this.echelleDyn = 1;
     this.fps = 60; this.cumul = 0; this.images = 0; this.tMesure = 0; this.tStable = 0;
     this.mesure = null;       // benchmark en cours
   }
   get reglages() { return Q.niveaux[this.niveau]; }
+  /** Part de la résolution réellement utilisée en ce moment (1 = 100 %). */
+  get echelleActive() { return this.dynamique ? this.echelleDyn : this.echelleFixe; }
+
+  /** Choisit le mode de résolution : automatique (avec un plancher) ou fixe. */
+  choisirResolution(id) {
+    const r = Q.resolutions[id] || Q.resolutions.auto;
+    this.resolution = Q.resolutions[id] ? id : 'auto';
+    this.dynamique = r.auto; this.plancher = r.plancher || Q.echelleDynMin; this.echelleFixe = r.fixe || 1;
+    this.echelleDyn = 1; this.tStable = 0;
+    if (this.jeu.post) this.jeu.redimensionner();
+  }
 
   /** Applique un niveau à tous les systèmes du jeu. */
   appliquer(niveau) {
@@ -51,8 +63,8 @@ export class Qualite {
     if (this.tMesure < 1.5) return;
     this.tMesure = 0;
     const avant = this.echelleDyn;
-    if (this.fps < Q.fpsCible - 3) { this.echelleDyn = borner(this.echelleDyn - Q.pasEchelleDyn * (this.fps < Q.fpsCible - 10 ? 2 : 1), Q.echelleDynMin, 1); this.tStable = 0; }
-    else if (this.fps > Q.fpsCible + 12) { this.tStable += 1.5; if (this.tStable > 4) this.echelleDyn = borner(this.echelleDyn + Q.pasEchelleDyn, Q.echelleDynMin, 1); }
+    if (this.fps < Q.fpsCible - 3) { this.echelleDyn = borner(this.echelleDyn - Q.pasEchelleDyn * (this.fps < Q.fpsCible - 10 ? 2 : 1), this.plancher, 1); this.tStable = 0; }
+    else if (this.fps > Q.fpsCible + 12) { this.tStable += 1.5; if (this.tStable > 4) this.echelleDyn = borner(this.echelleDyn + Q.pasEchelleDyn, this.plancher, 1); }
     if (this.echelleDyn !== avant) this.jeu.redimensionner();
   }
 }
