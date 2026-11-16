@@ -1,10 +1,10 @@
-# Déploie le jeu sur GitHub Pages à chaque push sur la branche principale.
-# Activation : Settings → Pages → Source : « GitHub Actions ».
+# Construit le jeu avec Vite et le publie sur GitHub Pages à chaque push sur « main ».
+# Activation (une seule fois) : Settings → Pages → Source : « GitHub Actions ».
 name: Déployer sur GitHub Pages
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -17,39 +17,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  construire:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Bundle file:// à jour
-        run: node tools/bundle.js
-      - name: Tests
-        run: node --test
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Régénérer le bundle
-        run: node tools/bundle.js
-      - name: Préparer le site (fichiers statiques uniquement)
-        run: |
-          mkdir _site
-          cp -r index.html styles src dist _site/
-          touch _site/.nojekyll
+          cache: npm
+      - name: Installer les dépendances
+        run: npm ci
+      - name: Construire le jeu
+        run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
-      - id: deployment
+          path: dist
+
+  deployer:
+    needs: construire
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - id: deploiement
         uses: actions/deploy-pages@v4

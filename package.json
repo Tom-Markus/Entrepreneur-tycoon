@@ -1,14 +1,18 @@
 {
-  "name": "entrepreneur-tycoon",
+  "name": "allosaure-jurassique",
   "version": "1.0.0",
-  "description": "Jeu de gestion d'entreprise belge en pixel art, jouable dans le navigateur.",
-  "type": "module",
   "private": true,
+  "description": "Simulation d'exploration : incarnez un Allosaurus au Jurassique supérieur.",
+  "type": "module",
   "scripts": {
-    "test": "node --test",
-    "simulate": "node tools/simulate.js",
-    "bundle": "node tools/bundle.js",
-    "serve": "npx --yes http-server -c-1 -p 8080 ."
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "license": "MIT"
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
 }
