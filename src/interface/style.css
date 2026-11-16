@@ -139,3 +139,68 @@ select { background: #1a2019; border: 1px solid var(--trait); padding: 5px 8px; 
 #photo .pied { justify-content: stretch; } #photo .pied .bouton { flex: 1; }
 #mesure { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 16px 26px; background: var(--fond); border: 1px solid var(--trait); text-align: center; letter-spacing: 0.06em; }
 @media (max-width: 700px) { .deux { grid-template-columns: 1fr; } #boussole { display: none; } }
+
+/* ---------- Écrans tactiles ---------- */
+html, body { overscroll-behavior: none; touch-action: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.panneau { touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.pages, .liste, .fiche { touch-action: pan-y; }
+#minicarte { pointer-events: auto !important; cursor: pointer; z-index: 6; }   /* au-dessus des zones tactiles */
+#paysage { display: none; position: fixed; inset: 0; z-index: 100; background: #0b0f0b; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 30px; }
+#paysage b { font-family: var(--serif); font-weight: 400; font-size: 26px; letter-spacing: 0.05em; }
+#paysage span { color: var(--ocre); font-size: 14px; }
+#paysage::before { content: '⟳'; font-size: 56px; color: var(--ocre); }
+@media (orientation: portrait) and (pointer: coarse) { #paysage { display: flex; } }
+#titre [data-a=pleinEcran] { display: none; }
+body.tactile #titre [data-a=pleinEcran] { display: block; }
+
+#tactile { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+#tactile .t-zone { position: absolute; top: 0; bottom: 0; pointer-events: auto; touch-action: none; }
+#tactile .t-gauche { left: 0; width: 45%; } #tactile .t-droite { right: 0; width: 55%; }
+.t-manette { position: absolute; left: 0; top: 0; width: 104px; height: 104px; border-radius: 50%; border: 2px solid rgba(241, 234, 217, 0.45); background: rgba(16, 20, 15, 0.25); pointer-events: none; }
+.t-manette i { position: absolute; left: 30px; top: 30px; width: 44px; height: 44px; border-radius: 50%; background: rgba(241, 234, 217, 0.55); }
+.t-manette.course { border-color: var(--ocre); } .t-manette.course i { background: var(--ocre); }
+.t-b { position: absolute; pointer-events: auto; touch-action: none; width: 62px; height: 62px; border-radius: 50%; border: 1.5px solid rgba(241, 234, 217, 0.5); background: rgba(16, 20, 15, 0.42); color: var(--encre); font: 600 11px var(--sans); letter-spacing: 0.04em; text-shadow: 0 1px 2px #000; padding: 0; }
+.t-b.enfonce { background: rgba(217, 181, 106, 0.55); border-color: var(--ocre); }
+.t-b.grand { width: 82px; height: 82px; font-size: 13px; }
+.t-b.discret { opacity: 0.3; }
+.t-actions, .t-haut, .t-plus { position: absolute; pointer-events: none; }
+.t-actions { right: calc(14px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); width: 250px; height: 190px; }
+.b-morsure { right: 0; bottom: 0; } .b-esquive { right: 92px; bottom: 4px; } .b-queue { right: 76px; bottom: 76px; }
+.b-rugir { right: 4px; bottom: 94px; } .b-interagir { right: 172px; bottom: 6px; }
+.t-haut { right: calc(12px + env(safe-area-inset-right)); top: calc(8px + env(safe-area-inset-top)); display: flex; gap: 6px; }
+.t-plus { right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); display: flex; gap: 6px; padding: 6px; background: var(--fond); border: 1px solid var(--trait); border-radius: 24px; }
+.t-b.petit { position: static; width: auto; min-width: 44px; height: 40px; border-radius: 20px; padding: 0 12px; }
+#tactile.mode-photo .t-actions, #tactile.mode-photo .t-haut, #tactile.mode-photo .t-plus { display: none; }
+
+/* sur tactile : pas d'invite clavier, messages et didacticiel remontés hors de la zone des boutons */
+body.tactile #invite { display: none; }
+body.tactile #observation { top: calc(56px + env(safe-area-inset-top)); }
+body.tactile #notes { top: 118px; bottom: auto; right: 16px; align-items: flex-end; }
+body.tactile #tutoriel { bottom: calc(6px + env(safe-area-inset-bottom)); width: min(380px, 40vw); font-size: 12px; line-height: 1.4; padding: 7px 10px; left: 43%; }
+body.tactile #boussole { display: none; }
+body.tactile #cible { top: calc(54px + env(safe-area-inset-top)); left: 42%; }
+body.tactile #fps { bottom: 2px; left: 30%; }
+body.tactile #photo { right: 8px; top: 8px; width: 230px; max-height: 96vh; overflow: auto; padding: 10px 12px; }
+body.tactile kbd { min-width: 0; }
+
+/* petits écrans en paysage (téléphones) : interface compacte */
+@media (max-height: 520px) {
+  #minicarte { width: 104px; height: 104px; left: calc(10px + env(safe-area-inset-left)); top: 8px; }
+  #etat { left: calc(124px + env(safe-area-inset-left)); top: 8px; font-size: 11px; line-height: 1.4; }
+  #etat .stade { font-size: 14.5px; } #etat .jauge { width: 100px; margin: 3px 0 4px; }
+  #objectif { left: calc(10px + env(safe-area-inset-left)); top: 118px; width: 190px; font-size: 11px; }
+  #objectif b { font-size: 13.5px; } #objectif span { display: none; }
+  #hud.carte-grande #minicarte { width: 78vh; height: 78vh; }
+  #hud.carte-grande #etat { left: calc(78vh + 24px); } #hud.carte-grande #objectif { opacity: 0; }
+  #besoins { left: calc(10px + env(safe-area-inset-left)); bottom: 8px; width: 132px; gap: 4px; }
+  .besoin { grid-template-columns: 46px 1fr; font-size: 9px; gap: 6px; }
+  #annonce { top: 30%; } #annonce b { font-size: 20px; } #annonce span { font-size: 12px; }
+  .note { font-size: 11.5px; padding: 5px 9px; max-width: 250px; }
+  .panneau { padding: 14px 16px; max-height: 96vh; } .panneau h2 { font-size: 20px; margin-bottom: 8px; }
+  #carnet .panneau { height: 96vh; }
+  .bouton { min-width: 200px; padding: 8px 16px; font-size: 12px; }
+  #titre { padding-bottom: 4vh; } #titre .titre-jeu { font-size: 40px; } #titre .sous-titre { margin-bottom: 12px; font-size: 12px; }
+  .boutons { gap: 5px; }
+  #pause .titre-jeu { font-size: 26px !important; margin-bottom: 6px !important; }
+  .ligne { grid-template-columns: 1fr minmax(150px, 220px); font-size: 13px; }
+}

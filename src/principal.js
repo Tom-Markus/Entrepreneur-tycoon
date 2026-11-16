@@ -39,6 +39,7 @@ import { Carnet } from './science/carnet.js';
 import { Progression } from './joueur/progression.js';
 import { Audio } from './audio/audio.js';
 import { Interface } from './interface/interface.js';
+import { Tactile } from './interface/tactile.js';
 
 const parametres = new URLSearchParams(location.search);
 const attendre = () => new Promise((r) => setTimeout(r, 30));   // laisse le navigateur afficher le texte de chargement
@@ -114,6 +115,7 @@ async function demarrer() {
   jeu.qualite.choisirResolution(r.resolution || (r.dynamique === false ? 'nette' : 'auto'));
   const forcee = parametres.get('qualite');
   jeu.qualite.appliquer(CONFIG.qualite.niveaux[forcee] ? forcee : r.qualite || 'moyen');
+  jeu.commandesTactiles = new Tactile(jeu);
 
   ui.chargement('Derniers préparatifs…'); await attendre();
   jeu.cameraJeu.mettreAJour(0.016, jeu.joueur, 0);
@@ -132,6 +134,8 @@ async function demarrer() {
 function brancherEvenements() {
   const e = jeu.entrees;
   addEventListener('resize', jeu.redimensionner);
+  addEventListener('orientationchange', () => setTimeout(jeu.redimensionner, 250));
+  document.addEventListener('fullscreenchange', jeu.redimensionner);
   e.surPause = () => {
     if (jeu.etat === 'jeu') jeu.mettreEnPause();
     else if (jeu.etat === 'pause') jeu.reprendre();
@@ -140,7 +144,7 @@ function brancherEvenements() {
   };
   // Le pointeur est capturé pendant le jeu ; s'il est relâché (Échap), on met en pause.
   jeu.renderer.domElement.addEventListener('click', () => { if (jeu.etat === 'jeu') e.verrouiller(); jeu.audio.demarrer(); });
-  e.surVerrou = (verrouille) => { if (!verrouille && jeu.etat === 'jeu' && !parametres.has('test')) jeu.mettreEnPause(); };
+  e.surVerrou = (verrouille) => { if (!verrouille && jeu.etat === 'jeu' && !jeu.tactile && !parametres.has('test')) jeu.mettreEnPause(); };
   addEventListener('keydown', (ev) => {
     if (jeu.etat !== 'photo') return;
     if (ev.code === 'Enter') jeu.photo.capturer();
@@ -152,7 +156,8 @@ function brancherEvenements() {
 
 // ------------------------------------------------------- GESTION DE PARTIE ---
 jeu.redimensionner = () => {
-  const q = jeu.qualite.reglages, pr = Math.min(devicePixelRatio || 1, q.pixelRatioMax);
+  // sur téléphone, l'écran est petit mais très dense : on autorise un peu plus de pixels réels, sinon l'image est floue
+  const q = jeu.qualite.reglages, pr = Math.min(devicePixelRatio || 1, jeu.tactile ? Math.max(q.pixelRatioMax, 1.6) : q.pixelRatioMax);
   jeu.renderer.setPixelRatio(pr);
   jeu.renderer.setSize(innerWidth, innerHeight);
   jeu.camera.aspect = innerWidth / innerHeight; jeu.camera.updateProjectionMatrix();
@@ -178,6 +183,20 @@ jeu.mesurerPerformances = (fin) => {
     jeu.ui.notifier(`Qualité « ${CONFIG.qualite.niveaux[niveau].nom} » choisie (${Math.round(fps)} images/s mesurées). Modifiable dans les options.`);
     if (fin) fin();
   });
+};
+
+// Plein écran (et verrouillage en paysage quand le navigateur le permet, c'est-à-dire surtout sur Android).
+jeu.pleinEcranPossible = () => !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+jeu.enPleinEcran = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+jeu.basculerPleinEcran = () => {
+  const el = document.documentElement;
+  if (jeu.enPleinEcran()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+  if (!jeu.pleinEcranPossible()) { jeu.ui.notifier('Plein écran indisponible dans ce navigateur. Sur iPhone : Partager → « Sur l\'écran d\'accueil ».'); return; }
+  try {
+    const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen();
+    const verrouiller = () => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); };
+    if (p && p.then) p.then(verrouiller).catch(() => jeu.ui.notifier('Le navigateur a refusé le plein écran.')); else verrouiller();
+  } catch (err) { jeu.ui.notifier('Plein écran indisponible dans ce navigateur.'); }
 };
 
 jeu.planifier = (delai, fonction) => jeu.minuteries.push({ t: delai, fonction });
@@ -255,6 +274,7 @@ function boucle(dtReel) {
   const e = jeu.entrees, j = jeu.joueur, cam = jeu.camera;
   jeu.tempsReel += dtReel;
   e.lireManette();
+  jeu.commandesTactiles.mettreAJour();
 
   // Raccourcis globaux
   if (jeu.etat === 'jeu') {

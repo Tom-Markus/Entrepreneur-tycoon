@@ -2,7 +2,13 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0b0f0b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icone.svg">
   <title>Allosaure — Jurassique supérieur</title>
   <meta name="description" content="Simulation d'exploration : incarnez un Allosaurus il y a 150 millions d'années.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%231d2a1c'/><path d='M7 20c4-9 11-11 18-9l-4 3 3 1-5 2 1 3-5-2-3 4z' fill='%23d9c89a'/></svg>">
@@ -10,6 +16,7 @@
 <body>
   <canvas id="jeu"></canvas>
   <div id="interface"></div>
+  <div id="paysage"><b>Tournez votre téléphone</b><span>Le jeu se joue en mode paysage.</span></div>
   <div id="chargement">
     <div class="titre-jeu">Allosaure</div>
     <div class="sous-titre">Jurassique supérieur · il y a 150 millions d'années</div>

@@ -15,6 +15,26 @@ Tout le jeu est **procédural** : aucun fichier image, modèle 3D ou son n'est c
 Le site est reconstruit automatiquement à chaque modification de la branche `main` (GitHub Actions → GitHub Pages).
 Si le lien affiche une erreur 404 : dans le dépôt GitHub, ouvrez **Settings → Pages** et choisissez **Source : GitHub Actions**, puis relancez le workflow dans l'onglet **Actions**.
 
+## Jouer sur téléphone ou tablette
+
+Ouvrez le même lien dans Chrome (Android) ou Safari (iPhone/iPad), téléphone **à l'horizontale**. Les commandes tactiles apparaissent au premier contact du doigt.
+
+![Commandes tactiles](docs/telephone.png)
+
+| Geste | Effet |
+|---|---|
+| Pouce gauche posé n'importe où à gauche | Fait apparaître la manette : se déplacer |
+| Pousser la manette bien au-delà de son bord | Courir |
+| Glisser le doigt sur la moitié droite | Tourner la caméra (possible en même temps que la manette) |
+| Boutons en bas à droite | Mordre, Queue, Esquive, Rugir, Boire/Manger (à maintenir) |
+| Boutons en haut à droite | Pause, plein écran, Carnet, Odorat, Plus |
+| « Plus » | Dormir, Marquer, Nid, Photo, Ciné, Allure |
+| Toucher la mini-carte | L'agrandir / la réduire |
+
+**Plein écran** : bouton ⛶ en jeu, bouton « Plein écran » sur l'écran-titre, ou Options → Graphismes. Sur Android, le plein écran verrouille aussi l'écran en paysage. **Sur iPhone, Safari n'autorise pas le plein écran pour une page web** : utilisez Partager → « Sur l'écran d'accueil », puis lancez le jeu depuis l'icône ; il s'ouvre alors sans barre de navigation.
+
+Tenu à la verticale, le téléphone affiche simplement « Tournez votre téléphone ».
+
 ## Jouer en local
 
 Il faut [Node.js](https://nodejs.org) (version 18 ou plus récente). Dans un terminal, depuis le dossier du projet :
@@ -136,6 +156,7 @@ Ces points sont approximatifs ou incomplets ; ils sont listés ici plutôt que c
 - **Écosystème** : les animaux ne sont pas sauvegardés (ils reprennent leur domaine au chargement). Les collisions sont des cercles ; les animaux contournent le relief et l'eau, mais de façon simple. Le Brachiosaurus n'atteint pas réellement les branches qu'il broute.
 - **Carnet** : pas de test d'occultation (un animal caché derrière un arbre mais dans le cadre compte comme observé). En mode photo, la validation porte sur les animaux à moins de 170 m du dinosaure.
 - **Manette** : tout le jeu est jouable, mais les menus se pilotent à la souris ou au clavier.
+- **Téléphone** : testé uniquement sur un téléphone simulé (écran 844 × 390, gestes tactiles envoyés au navigateur), jamais sur un vrai appareil. Les performances réelles sur téléphone sont inconnues ; le test automatique choisira le niveau de qualité. Pas de zoom à deux doigts (la distance de caméra reste fixe). En mode photo tactile, la mise au point se règle avec le curseur du panneau. Le remappage ne concerne que le clavier.
 - **Audio** : entièrement synthétisé, donc simple. La voix des dinosaures est une interprétation (personne ne sait à quoi elle ressemblait).
 - **Exactitude scientifique** : l'écosystème est *composite*. La plupart des espèces viennent de la formation de Morrison (Amérique du Nord) ; Compsognathus et Rhamphorhynchus vivaient à la même époque mais en Europe. Les couleurs, les filaments de l'Allosaurus juvénile et du Dryosaurus, et la vie en groupe des Compsognathus sont des hypothèses, signalées comme telles dans les fiches.
 - **Petits arbres renversables** : seules les cycadales et les jeunes fougères arborescentes tombent, et seulement sous un animal d'au moins 500 kg lancé à plus de 3,5 m/s.

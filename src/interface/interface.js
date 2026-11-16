@@ -47,6 +47,7 @@ export class Interface {
     this.jauges = [...this.racine.querySelectorAll('#besoins .besoin')];
     this.reperes = [...this.racine.querySelectorAll('#boussole span')];
     this.notes = $('#notes'); this.tAnnonce = 0; this.tHud = 0;
+    $('#minicarte').addEventListener('pointerdown', (ev) => { ev.stopPropagation(); if (this.jeu.etat === 'jeu') this.basculerCarte(); });
     this.miniCarte = $('#minicarte canvas'); this.carteGrande = false; this.tCarte = 0; this.fondCarte = null;
     this.ongletCarnet = 'faune'; this.ficheChoisie = 'allosaurus'; this.floreChoisie = 'fougere';
     this.etapeTuto = -1; this.tTuto = 0; this.memoTuto = {};
@@ -84,6 +85,7 @@ export class Interface {
         <button class="bouton" data-a="nouvelle">Nouvelle partie</button>
         <button class="bouton" data-a="charger">Charger une partie</button>
         <button class="bouton" data-a="options">Options</button>
+        <button class="bouton" data-a="pleinEcran">Plein écran</button>
       </div>`;
     t.addEventListener('click', (e) => {
       const a = e.target.dataset.a; if (!a) return;
@@ -91,6 +93,7 @@ export class Interface {
       if (a === 'continuer') this.jeu.chargerPartie(this.dernierEmplacement());
       else if (a === 'nouvelle') this.ouvrirEmplacements('nouvelle');
       else if (a === 'charger') this.ouvrirEmplacements('charger');
+      else if (a === 'pleinEcran') this.jeu.basculerPleinEcran();
       else this.ouvrirOptions('titre');
     });
   }
@@ -156,6 +159,7 @@ export class Interface {
         <select data-r="qualite">${Q.ordre.map((n) => `<option value="${n}" ${n === jeu.qualite.niveau ? 'selected' : ''}>${Q.niveaux[n].nom} — ${Q.niveaux[n].description}</option>`).join('')}</select></div>
       <div class="ligne"><div>Résolution de l'image<small>« Automatique » baisse la résolution quand le jeu ralentit. Les modes « Douce » la fixent plus bas : image adoucie, même sur une machine rapide.</small></div>
         <select data-r="resolution">${Object.keys(Q.resolutions).map((id) => `<option value="${id}" ${id === jeu.qualite.resolution ? 'selected' : ''}>${Q.resolutions[id].nom} — ${Q.resolutions[id].aide}</option>`).join('')}</select></div>
+      <div class="ligne"><div>Plein écran<small>Sur téléphone, verrouille aussi l'écran en mode paysage quand le navigateur le permet.</small></div><button class="bouton petit" data-a="pleinEcran">${jeu.enPleinEcran() ? 'Quitter le plein écran' : 'Passer en plein écran'}</button></div>
       <div class="ligne"><div>Afficher les images par seconde</div>${case_('fps', r.fps)}</div>
       <div class="ligne"><div>Test de performance<small>Choisit automatiquement le niveau adapté.</small></div><button class="bouton petit" data-a="mesurer">Relancer le test (3 s)</button></div>
       <h3>Audio</h3>
@@ -184,6 +188,7 @@ export class Interface {
       const a = ev.target.dataset.a, touche = ev.target.dataset.touche;
       if (touche) { ev.target.textContent = '…'; e.remapper(touche, () => { jeu.enregistrerReglages(); this.ouvrirOptions(retour); }); }
       else if (a === 'touchesDefaut') { e.touches = JSON.parse(JSON.stringify(TOUCHES_DEFAUT)); jeu.enregistrerReglages(); this.ouvrirOptions(retour); }
+      else if (a === 'pleinEcran') { jeu.basculerPleinEcran(); setTimeout(() => { if (!o.classList.contains('cache')) this.ouvrirOptions(retour); }, 400); }
       else if (a === 'mesurer') { o.classList.add('cache'); jeu.mesurerPerformances(() => this.ouvrirOptions(retour)); }
       else if (a === 'fermer') { o.classList.add('cache'); if (retour === 'pause') this.montrerPause(true); }
     };
@@ -332,6 +337,16 @@ export class Interface {
       [`Gardez un animal à l'écran quelques secondes pour remplir votre carnet de bord ${k('carnet')}. Le mode photo ${k('photo')} valide une fiche d'un seul cliché.`, () => jeu.carnet.nbSections > 3 || this.tTuto > 40],
       [`${k('morsure')} mordre · ${k('queue')} coup de queue · ${k('esquive')} esquiver · ${k('rugir')} rugir · ${k('reposer')} dormir · ${k('marquer')} marquer le territoire · ${k('nid')} établir le nid · ${k('carte')} agrandir la carte. Bonne exploration.`, () => this.tTuto > 16],
     ];
+    if (jeu.tactile) {
+      // sur écran tactile, les consignes parlent de gestes et de boutons, pas de touches
+      const b = (t) => `<kbd>${t}</kbd>`;
+      etapes[0][0] = 'Vous êtes un jeune Allosaurus. Posez le pouce gauche sur l\'écran pour faire apparaître la manette et vous déplacer ; glissez le doigt à droite pour tourner la caméra.';
+      etapes[1][0] = 'Poussez la manette bien au-delà de son bord pour courir : cela consomme votre souffle. ' + b('Plus') + ' → ' + b('Allure') + ' alterne marche lente et petite foulée.';
+      etapes[2][0] = b('Odorat') + ' active la vision olfactive : proies en orange, prédateurs en rouge, carcasses en vert, eau douce en bleu. Essayez.';
+      etapes[3][0] = 'Suivez l\'odeur bleue jusqu\'à l\'eau, arrêtez-vous au bord et maintenez ' + b('Boire') + '. On mange de la même façon près d\'une carcasse.';
+      etapes[4][0] = 'Gardez un animal à l\'écran quelques secondes pour remplir votre ' + b('Carnet') + '. Touchez la mini-carte pour l\'agrandir.';
+      etapes[5][0] = b('Mordre') + ' ' + b('Queue') + ' ' + b('Esquive') + ' ' + b('Rugir') + ' en bas à droite ; dormir, marquer le territoire, établir le nid et le mode photo sont dans ' + b('Plus') + '. Bonne exploration.';
+    }
     if (this.etapeTuto >= etapes.length) { this.etapeTuto = -1; jeu.reglages.tutorielFait = true; jeu.enregistrerReglages(); return; }
     this.tTuto += dt;
     if (this._tutoAffiche !== this.etapeTuto) {
@@ -372,7 +387,7 @@ export class Interface {
     this.tHud -= dt;
     if (this.tHud > 0) return;
     this.tHud = 0.25;
-    $('#minicarte small').textContent = jeu.entrees.nomAction('carte');
+    $('#minicarte small').textContent = jeu.tactile ? '' : jeu.entrees.nomAction('carte');
     const e = $('#etat');
     e.querySelector('.stade').textContent = 'Allosaurus ' + j.infosStade.nom.toLowerCase();
     e.querySelector('.jauge i').style.transform = `scaleX(${j.progression.toFixed(3)})`;

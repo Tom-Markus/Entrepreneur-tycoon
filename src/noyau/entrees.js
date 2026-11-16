@@ -11,12 +11,14 @@ export class Entrees {
     this.canvas = canvas;
     this.touches = JSON.parse(JSON.stringify(TOUCHES_DEFAUT));
     this.enfoncees = new Set();      // codes actuellement enfoncés
+    this.tenues = new Set();         // actions maintenues par un bouton tactile
     this.pressees = new Set();       // actions déclenchées pendant cette image
     this.manetteAvant = {};
     this.sourisX = 0; this.sourisY = 0; this.molette = 0;
     this.axeX = 0; this.axeY = 0; this.camX = 0; this.camY = 0;   // manette
     this.capture = null;             // fonction en attente d'une touche (remappage)
     this.verrouille = false;         // pointeur capturé par le jeu
+    this.sansVerrou = false;         // écran tactile : on ne capture jamais le pointeur (cela détournerait les doigts)
     this.surPause = null; this.surPremierGeste = null;
     this.dispositions = null;        // noms réels des touches selon le clavier de l'utilisateur
     if (navigator.keyboard && navigator.keyboard.getLayoutMap) navigator.keyboard.getLayoutMap().then((m) => { this.dispositions = m; }).catch(() => {});
@@ -31,7 +33,7 @@ export class Entrees {
       if (e.code === 'Escape' && this.surPause) this.surPause();
     });
     addEventListener('keyup', (e) => this.enfoncees.delete(e.code));
-    addEventListener('blur', () => this.enfoncees.clear());
+    addEventListener('blur', () => { this.enfoncees.clear(); this.tenues.clear(); });
     canvas.addEventListener('mousedown', (e) => {
       const code = 'Souris' + e.button;
       if (this.capture) { const f = this.capture; this.capture = null; f(code); return; }
@@ -48,15 +50,20 @@ export class Entrees {
     for (const action in this.touches) if (this.touches[action].includes(code)) this.pressees.add(action);
   }
 
-  verrouiller() { if (!this.verrouille && this.canvas.requestPointerLock) { try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* refusé */ } } }
+  verrouiller() { if (!this.sansVerrou && !this.verrouille && this.canvas.requestPointerLock) { try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* refusé */ } } }
   liberer() { if (document.pointerLockElement) document.exitPointerLock(); }
 
   /** L'action est-elle maintenue ? */
   actif(action) {
     const t = this.touches[action];
     if (t) for (let i = 0; i < t.length; i++) if (this.enfoncees.has(t[i])) return true;
+    if (this.tenues.has(action)) return true;
     return !!this.manetteActifs && this.manetteActifs[action] === true;
   }
+  /** Bouton tactile : enfoncé (déclenche l'action et la maintient) ou relâché. */
+  appuiTactile(action, enfonce) { if (enfonce) { this.tenues.add(action); this.pressees.add(action); } else this.tenues.delete(action); }
+  /** Maintient ou relâche une action sans la « déclencher » (course à la manette virtuelle). */
+  tenirTactile(action, oui) { if (oui) this.tenues.add(action); else this.tenues.delete(action); }
   /** L'action vient-elle d'être déclenchée (une seule fois par appui) ? */
   vientDe(action) { return this.pressees.has(action); }
 
