@@ -20,7 +20,7 @@ export const CONFIG = {
   // ---------------------------------------------------------------- TEMPS ---
   temps: {
     dureeJourMinutes: 24,     // durée réelle d'un cycle jour/nuit complet
-    heureDepart: 7.2,         // heure de début d'une nouvelle partie (matin)
+    heureDepart: 8.4,         // heure de début d'une nouvelle partie (matin)
     acceleReposer: 12,        // accélération de l'horloge quand le dinosaure dort
   },
 
@@ -29,8 +29,8 @@ export const CONFIG = {
     dureeMin: 150, dureeMax: 420,   // durée d'un type de temps (secondes réelles)
     probaPluie: 0.22, probaOrage: 0.10, probaNuageux: 0.28, // le reste : ciel clair
     brumeMatinDebut: 4.5, brumeMatinFin: 8.5, // heures du brouillard matinal
-    densiteBrumeBase: 0.0011,       // brume de distance par temps clair
-    densiteBrumeMatin: 0.0075,      // brouillard matinal
+    densiteBrumeBase: 0.0017,       // brume de distance par temps clair
+    densiteBrumeMatin: 0.0048,      // brouillard matinal
     densiteBrumePluie: 0.0042,
     intervalleEclairMin: 5, intervalleEclairMax: 16,
   },
@@ -136,9 +136,9 @@ export const CONFIG = {
         particules: 0.4, normalesTerrain: false, caustiques: false,
       },
       moyen: {
-        nom: 'Moyen', echelle: 0.75, pixelRatioMax: 1, msaa: 0,
+        nom: 'Moyen', echelle: 0.8, pixelRatioMax: 1, msaa: 2,
         cascades: 2, tailleOmbre: 1024, porteeOmbre: 90, frequenceOmbres: 2,
-        bloom: true, ao: false, dof: false, rayons: true, reflets: false,
+        bloom: true, ao: false, dof: false, rayons: true, reflets: true, refletsEco: true,
         nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.65, porteeProche: 0.8,
         particules: 0.7, normalesTerrain: true, caustiques: true,
       },

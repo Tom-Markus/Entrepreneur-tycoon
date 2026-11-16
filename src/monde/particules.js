@@ -12,12 +12,12 @@ void main() {
   vCouleur = aCouleur;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = aTaille * uEchelle / max(-mv.z, 0.1);
+  gl_PointSize = min(aTaille * uEchelle / max(-mv.z, 0.1), uEchelle * 0.12);   // jamais plus de 12 % de la hauteur d'écran
 }`;
 const FRAG = /* glsl */`
 varying vec4 vCouleur; uniform sampler2D uTex; uniform vec3 uLumiere;
 void main() {
-  float a = texture2D(uTex, gl_PointCoord).a * vCouleur.a;
+  float a = texture2D(uTex, gl_PointCoord).a * clamp(vCouleur.a, 0.0, 1.0);
   if (a < 0.01) discard;
   gl_FragColor = vec4(vCouleur.rgb * uLumiere, a);
 }`;
@@ -49,7 +49,7 @@ export class Particules {
     for (let k = 0; k < n && this.n < MAX; k++) {
       const i = this.n++, a = Math.random() * Math.PI * 2, r = Math.random();
       this.pos[i * 3] = x + Math.cos(a) * r * 0.4 * force; this.pos[i * 3 + 1] = y + Math.random() * 0.2; this.pos[i * 3 + 2] = z + Math.sin(a) * r * 0.4 * force;
-      let vh = 0.6, vv = 0.8, g = -0.3, d = 1.6, t = 0.5, c = [0.3, 0.25, 0.18], al = 0.16, croit = 1.2;
+      let vh = 0.5, vv = 0.5, g = -0.15, d = 1.3, t = 0.28, c = [0.26, 0.22, 0.17], al = 0.1, croit = 0.7;
       if (type === 'eclaboussure') { vh = 2.2; vv = 3.6; g = 9.8; d = 0.9; t = 0.16; c = [0.85, 0.92, 0.95]; al = 0.7; croit = 0; }
       else if (type === 'boue') { vh = 1.6; vv = 2.6; g = 9.8; d = 0.8; t = 0.14; c = [0.16, 0.11, 0.07]; al = 0.9; croit = 0; }
       else if (type === 'souffle') { vh = 0.3; vv = 0.5; g = -0.2; d = 1.4; t = 0.4; c = [0.9, 0.9, 0.9]; al = 0.16; croit = 2.2; }
@@ -83,7 +83,7 @@ export class Particules {
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.aCouleur.needsUpdate = true; this.geo.attributes.aTaille.needsUpdate = true;
     this.uniformes.uEchelle.value = hauteurEcran;
-    this.uniformes.uLumiere.value.copy(lumiere);
+    if (Number.isFinite(lumiere.r + lumiere.g + lumiere.b)) this.uniformes.uLumiere.value.copy(lumiere);
   }
 }
 

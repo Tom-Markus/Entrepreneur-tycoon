@@ -264,11 +264,14 @@ export class Terrain {
           float macro = texture2D(uBruit, vPosMonde.xz * 0.0031).r;
           float macro2 = texture2D(uBruit, vPosMonde.xz * 0.023).g;
           // Tapis de mousses et de petites fougères : le sol du Jurassique n'a pas d'herbe
-          vec3 mousse = mix(vec3(0.030, 0.062, 0.016), vec3(0.070, 0.105, 0.028), macro2);
+          vec3 mousse = mix(vec3(0.022, 0.07, 0.014), vec3(0.06, 0.125, 0.022), macro2);
           float fin = texture2D(uBruit, vPosMonde.xz * 0.37).b;
           aT.rgb = mix(aT.rgb, mousse * (0.25 + aT.g * 9.0) * (0.55 + fin * 0.9), sp.a * 0.88);
           vec4 alb = aT * wT + aB * wB + aR * wR + aS * wS;
           alb.rgb *= 0.72 + 0.56 * macro;
+          // grain très fin, visible seulement de près : évite l'aspect flou sous les pattes
+          float grainFin = texture2D(uBruit, vPosMonde.xz * 1.9).b * 0.6 + texture2D(uBruit, vPosMonde.xz * 5.3).a * 0.4;
+          alb.rgb *= 0.7 + 0.6 * grainFin;
           float humide = (1.0 - smoothstep(-0.1, 0.9, vPosMonde.y)) * (1.0 - wS * 0.6);
           humide = max(humide, uPluie * 0.65);
           alb.rgb *= mix(1.0, 0.58, humide);

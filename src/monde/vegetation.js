@@ -18,14 +18,14 @@ export const ESPECES_FLORE = [
     echelle: [0.65, 1.25], proba: { [B.FORET_CONIFERES]: 0.5, [B.FORET_HUMIDE]: 0.05 } },
   { id: 'araucaria', nom: 'Araucaria', espacement: 13, proche: 150, loin: 1200, capProche: 260, capLoin: 2200, rayon: 0.55, ombre: true,
     echelle: [0.7, 1.2], proba: { [B.FORET_CONIFERES]: 0.3, [B.FORET_HUMIDE]: 0.07, [B.PLAINE]: 0.012, [B.ROCAILLE]: 0.03 } },
-  { id: 'ginkgo', nom: 'Ginkgo', espacement: 11, proche: 120, loin: 700, capProche: 220, capLoin: 1500, rayon: 0.38, ombre: true,
-    echelle: [0.6, 1.2], proba: { [B.FORET_HUMIDE]: 0.3, [B.RIVE]: 0.1, [B.PLAINE]: 0.018, [B.FORET_CONIFERES]: 0.05 } },
+  { id: 'ginkgo', nom: 'Ginkgo', espacement: 11, proche: 120, loin: 700, capProche: 220, capLoin: 1500, rayon: 0.5, ombre: true,
+    echelle: [0.6, 1.25], proba: { [B.FORET_HUMIDE]: 0.42, [B.RIVE]: 0.2, [B.PLAINE]: 0.025, [B.FORET_CONIFERES]: 0.06, [B.MARAIS]: 0.05 } },
   { id: 'fougereArbo', nom: 'Fougère arborescente', espacement: 8, proche: 95, loin: 420, capProche: 340, capLoin: 1800, rayon: 0.24, ombre: true, renversable: 0.85,
-    echelle: [0.5, 1.3], proba: { [B.FORET_HUMIDE]: 0.4, [B.RIVE]: 0.22, [B.FORET_CONIFERES]: 0.08, [B.MARAIS]: 0.06, [B.PLAINE]: 0.01 } },
+    echelle: [0.5, 1.3], proba: { [B.FORET_HUMIDE]: 0.5, [B.RIVE]: 0.4, [B.FORET_CONIFERES]: 0.1, [B.MARAIS]: 0.16, [B.PLAINE]: 0.015 } },
   { id: 'cycas', nom: 'Cycadale', espacement: 7, proche: 85, loin: 320, capProche: 420, capLoin: 1800, rayon: 0.3, ombre: true, renversable: 9,
-    echelle: [0.7, 1.5], proba: { [B.PLAINE]: 0.07, [B.FORET_HUMIDE]: 0.2, [B.FORET_CONIFERES]: 0.1, [B.PLAGE]: 0.025, [B.ROCAILLE]: 0.04 } },
+    echelle: [0.7, 1.5], proba: { [B.PLAINE]: 0.09, [B.FORET_HUMIDE]: 0.3, [B.RIVE]: 0.2, [B.FORET_CONIFERES]: 0.12, [B.PLAGE]: 0.025, [B.ROCAILLE]: 0.04 } },
   { id: 'fougere', nom: 'Fougère', espacement: 2.3, proche: 55, loin: 150, capProche: 4200, capLoin: 9000, rayon: 0, ombre: false, detail: true,
-    echelle: [0.7, 1.5], proba: { [B.PLAINE]: 0.6, [B.FORET_HUMIDE]: 0.75, [B.FORET_CONIFERES]: 0.55, [B.RIVE]: 0.5, [B.MARAIS]: 0.12, [B.ROCAILLE]: 0.06 } },
+    echelle: [0.7, 1.9], proba: { [B.PLAINE]: 0.6, [B.FORET_HUMIDE]: 0.75, [B.FORET_CONIFERES]: 0.55, [B.RIVE]: 0.5, [B.MARAIS]: 0.12, [B.ROCAILLE]: 0.06 } },
   { id: 'prele', nom: 'Prêle géante', espacement: 3, proche: 60, loin: 190, capProche: 1500, capLoin: 3500, rayon: 0, ombre: false, detail: true, humide: true,
     echelle: [0.6, 1.3], proba: { [B.MARAIS]: 0.5, [B.RIVE]: 0.42 } },
   { id: 'troncMort', nom: 'Tronc mort', espacement: 24, proche: 110, loin: 300, capProche: 80, capLoin: 200, rayon: 0, ombre: true,
@@ -50,6 +50,7 @@ export class Vegetation {
       uTemps: { value: 0 }, uVentForce: { value: 0.4 }, uPousseurs: { value: this.pousseurs },
       uRosee: { value: 0 }, uTranslucide: { value: new THREE.Color() },
     };
+    this.materiauxFeuillage = [];
     this._semer();
     this._creerMailles();
     this._sphere = new THREE.Sphere(); this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion();
@@ -122,7 +123,8 @@ export class Vegetation {
 
   // ------------------------------------------------------------ MATÉRIAUX --
   _materiauFeuillage(esp) {
-    const mat = new THREE.MeshLambertMaterial({ map: this.atlas, alphaTest: 0.42, side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ map: this.atlas, alphaTest: 0.42, side: THREE.DoubleSide, vertexColors: true });
+    this.materiauxFeuillage.push(mat);
     const portee = { value: esp.loin };
     esp.uPortee = portee;
     mat.userData.cle = 'feuillage';
@@ -133,7 +135,7 @@ export class Vegetation {
           attribute float aVent;
           uniform float uTemps, uVentForce, uPortee;
           uniform vec4 uPousseurs[${NB_POUSSEURS}];
-          varying vec3 vTeinte;`)
+          varying vec3 vTeinte; varying float vDistCam;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vec3 origine = instanceMatrix[3].xyz;
           float ph = origine.x * 0.31 + origine.z * 0.27;
@@ -152,12 +154,13 @@ export class Vegetation {
             transformed += dep * mat3(instanceMatrix);
           }
           // Apparition progressive à la limite de la distance d'affichage
-          transformed *= 1.0 - smoothstep(uPortee * 0.84, uPortee, distance(origine, cameraPosition));
+          vDistCam = distance(origine, cameraPosition);
+          transformed *= 1.0 - smoothstep(uPortee * 0.84, uPortee, vDistCam);
           float al = fract(sin(dot(origine.xz, vec2(12.9898, 78.233))) * 43758.5453);
           vTeinte = vec3(0.82 + al * 0.36, 0.86 + fract(al * 7.0) * 0.28, 0.8 + fract(al * 13.0) * 0.3);`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vTeinte;\nuniform float uRosee;\nuniform vec3 uTranslucide;')
-        .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vTeinte;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vTeinte;\nvarying float vDistCam;\nuniform float uRosee;\nuniform vec3 uTranslucide;')
+        .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vTeinte;\n// de loin, les feuilles deviennent plus fines que les pixels : on renforce leur opacité pour garder des arbres touffus\ndiffuseColor.a = clamp(diffuseColor.a * (1.0 + vDistCam * 0.03), 0.0, 1.0);')
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           totalEmissiveRadiance += diffuseColor.rgb * uTranslucide;      // lumière traversant les feuilles
           float eclat = step(0.9988, fract(sin(dot(floor(vMapUv * vec2(1800.0, 440.0)), vec2(12.9898, 78.233))) * 43758.5453));
@@ -188,6 +191,8 @@ export class Vegetation {
 
   reglerQualite(q) {
     this.densite = q.densiteVegetation; this.facteurProche = q.porteeProche; this.distanceVue = q.distanceVue;
+    // avec l'anticrénelage, les bords des feuilles sont adoucis (« alpha to coverage »)
+    for (const m of this.materiauxFeuillage) { m.alphaToCoverage = q.msaa > 0; m.alphaTest = q.msaa > 0 ? 0.3 : 0.42; }
     for (const esp of ESPECES_FLORE) {
       esp.mailleLoin.castShadow = esp.ombre && q.cascades >= 3;
       if (esp.uPortee) esp.uPortee.value = Math.min(esp.loin * (esp.detail ? q.porteeProche : 1), q.distanceVue);

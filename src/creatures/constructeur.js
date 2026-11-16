@@ -60,7 +60,7 @@ export class MaillageOs {
    * station = { c:[x,y,z], rx, ryH, ryB, os:[o1,w1,o2,w2], u }  (ryH : rayon vers le « haut » de la section, ryB vers le bas)
    * couleur(u, v, a) → [r,v,b] ; v = 0 ventre … 1 dos.
    */
-  tube(stations, cotes, couleur, grain) {
+  tube(stations, cotes, couleur, grain, crete = 0) {
     const base = this.n, l = cotes + 1;
     let longueur = 0;
     for (let i = 0; i < stations.length; i++) {
@@ -75,7 +75,9 @@ export class MaillageOs {
       for (let k = 0; k <= cotes; k++) {
         const a = -Math.PI / 2 + (k / cotes) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
         const ry = sa >= 0 ? s.ryH : s.ryB;
-        const x = s.c[0] + ca * s.rx, y = s.c[1] + uy * sa * ry, z = s.c[2] + uz * sa * ry;
+        // crete > 0 : section en « poire » (dos étroit, ventre large), comme une vraie cage thoracique
+        const etroit = sa > 0 ? 1 - crete * sa * sa : 1 + crete * 0.18 * sa * sa;
+        const x = s.c[0] + ca * s.rx * etroit, y = s.c[1] + uy * sa * ry, z = s.c[2] + uz * sa * ry;
         let nx = ca / Math.max(s.rx, 1e-4), nu = sa / Math.max(ry, 1e-4);
         const nl = Math.hypot(nx, nu) || 1; nx /= nl; nu /= nl;
         const c = couleur(s.u, (sa + 1) / 2, a, s);
@@ -109,7 +111,7 @@ export class MaillageOs {
 /** Interpolation de Catmull-Rom entre des stations de contrôle (formes plus rondes). */
 function interpoler(ctrl, i, t, cle) {
   const a = ctrl[Math.max(0, i - 1)][cle], b = ctrl[i][cle], c = ctrl[i + 1][cle], d = ctrl[Math.min(ctrl.length - 1, i + 2)][cle];
-  const v = 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - 3 * a + d - c) * t * t * t);
+  const v = 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
   return cle === 'x' || cle === 'y' || cle === 'z' ? v : Math.max(v, Math.min(b, c) * 0.6);
 }
 
@@ -169,7 +171,7 @@ export function construireCreature(def, variante = {}) {
   // Les teintes des espèces sont assombries : une peau réelle ne renvoie que 10 à 20 % de la lumière.
   const couleur = (u, v, a, s) => {
     const c = def.motif(u, v, bruitMotif.bruit2(u * 23 + Math.cos(a) * 1.3, v * 3 + Math.sin(a) * 2.1), contraste, a);
-    return [c[0] * 0.5, c[1] * 0.5, c[2] * 0.5];
+    return [c[0] * 0.42, c[1] * 0.42, c[2] * 0.42];
   };
 
   // ----- Os de la colonne -----
@@ -187,8 +189,8 @@ export function construireCreature(def, variante = {}) {
     ctrl.push({ x: 0, y: A[i][2], z: A[i][1], rx: A[i][3], ryH: A[i][4], ryB: A[i][4] * (A[i][5] || 1) });
     if (i < A.length - 1) osSeg.push(O[A[i][0]]);
   }
-  const corps = affiner(ctrl, osSeg, def.sub || 3);
-  m.tube(corps, cotes, couleur, grain);
+  const corps = affiner(ctrl, osSeg, def.sub || 4);
+  m.tube(corps, cotes, couleur, grain, def.crete === undefined ? 0.3 : def.crete);
   const nbQ = Q.length, nbCtrl = ctrl.length - 1;
 
   /** Point du dos (ligne médiane supérieure) pour une abscisse `seg` le long des contrôles. */
@@ -222,7 +224,7 @@ export function construireCreature(def, variante = {}) {
   { const e = surCrane(T.oeilT || 0.3), r = 0.036 * L * (T.oeil || 1);
     for (const c of [-1, 1]) {
       const b = [c * e.rx * 0.84, e.y + e.ryH * 0.58, e.z];
-      m.cone(b, [c, 0, 0], r * 0.9, r, OEIL, O.tete, 6);
+      m.cone(b, [c, 0, 0], r * 0.9, r, [0.16, 0.09, 0.02], O.tete, 8, OEIL);   // iris ambré, pupille sombre
     } }
   // Dents (carnivores)
   if (T.dents) {
@@ -257,9 +259,9 @@ export function construireCreature(def, variante = {}) {
       const ids = [];
       for (let i = 0; i < 4; i++) { ids.push(m.ajouterOs(noms[i] + suf, par, pts[i][0], pts[i][1], pts[i][2])); par = noms[i] + suf; }
       const ctrlP = pts.map((p, i) => ({ x: p[0], y: p[1], z: p[2], rx: P.r[i][0] * k, ryH: P.r[i][1] * k, ryB: P.r[i][1] * k }));
-      const st = affiner(ctrlP, [ids[0], ids[1], ids[2]], 3, m.indexOs[parent], [0.4, 0.16, 0]);
+      const st = affiner(ctrlP, [ids[0], ids[1], ids[2]], 5, m.indexOs[parent], [0.42, 0.2, 0.04]);
       const coulPatte = (u, v, a, s) => couleur(0.5, 0.62 - s.u * 0.22, a + cote);
-      m.tube(st, Math.max(6, cotes - 3), coulPatte, grain);
+      m.tube(st, Math.min(12, Math.max(6, Math.round(cotes * 0.6))), coulPatte, grain);
       // Doigts et griffes
       const D = P.doigts, pied = pts[3];
       for (let d = 0; d < D.n; d++) {
@@ -270,7 +272,7 @@ export function construireCreature(def, variante = {}) {
           { x: pied[0] + dx * D.l * 0.55, y: D.r * 0.95, z: pied[2] + dz * D.l * 0.55, rx: D.r * 0.85, ryH: D.r * 0.8, ryB: D.r * 0.8 },
           { x: pied[0] + dx * D.l, y: D.r * 0.6, z: pied[2] + dz * D.l, rx: D.r * 0.5, ryH: D.r * 0.5, ryB: D.r * 0.5 },
         ];
-        m.tube(affiner(cD, [ids[3], ids[3]], 1, -1), 5, (u, v, a) => couleur(0.5, 0.4, a), grain);
+        m.tube(affiner(cD, [ids[3], ids[3]], 2, -1), 7, (u, v, a) => couleur(0.5, 0.4, a), grain);
         m.cone([pied[0] + dx * D.l, D.r * 0.6, pied[2] + dz * D.l], [dx, -0.35, dz], D.l * (D.griffe || 0.4), D.r * 0.5, GRIFFE, ids[3], 3);
       }
       const l1 = dist(pts[0], pts[1]), l2 = dist(pts[1], pts[2]), l3 = dist(pts[2], pts[3]);
@@ -287,7 +289,7 @@ export function construireCreature(def, variante = {}) {
       const o1 = m.ajouterOs('bras' + suf, 'torse', pts[0][0], pts[0][1], pts[0][2]);
       const o2 = m.ajouterOs('avantbras' + suf, 'bras' + suf, pts[1][0], pts[1][1], pts[1][2]);
       const ctrlP = pts.map((p, i) => ({ x: p[0], y: p[1], z: p[2], rx: P.r[i], ryH: P.r[i] * 1.15, ryB: P.r[i] * 1.15 }));
-      m.tube(affiner(ctrlP, [o1, o2], 2, O.torse), 6, (u, v, a) => couleur(0.5, 0.5, a), grain);
+      m.tube(affiner(ctrlP, [o1, o2], 3, O.torse), 8, (u, v, a) => couleur(0.5, 0.5, a), grain);
       for (let g = 0; g < (P.griffes || 3); g++) {
         m.cone([pts[2][0], pts[2][1], pts[2][2]], [cote * (g - 1) * 0.5, -0.8, 0.6], P.r[2] * 3.2, P.r[2] * 0.6, GRIFFE, o2, 3);
       }

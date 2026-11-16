@@ -48,7 +48,7 @@ const jeu = {
   frustum: new THREE.Frustum(),
   reglages: Sauvegarde.lireReglages(),
 };
-const _mat = new THREE.Matrix4(), _v = new THREE.Vector3(), _pousseurs = [];
+const _mat = new THREE.Matrix4(), _v = new THREE.Vector3(), _pousseurs = [], _couleurParticules = new THREE.Color();
 const _pj = { x: 0, y: 0, z: 0, rayon: 1 }, _pa = [{ x: 0, y: 0, z: 0, rayon: 1 }, { x: 0, y: 0, z: 0, rayon: 1 }, { x: 0, y: 0, z: 0, rayon: 1 }];
 
 // ------------------------------------------------------------ CRÉATION -------
@@ -235,7 +235,7 @@ jeu.surPas = (x, y, z, creature, patte) => {
     mou = jeu.empreintes.poser(x, z, creature.cap, patte.P.longueurDoigt * 2.7 * creature.echelle, jeu.temps);
     const rapide = Math.abs(creature.vitesse) > creature.marche * 1.4;
     if (mou > 0.55 && jeu.terrain.boue(x, z) > 0.4) { if (rapide && d < 40) jeu.particules.emettre('boue', x, y + 0.05, z, 3, Math.min(1.5, masse / 1500 + 0.4)); }
-    else if ((rapide || masse > 3000) && d < 60 && jeu.meteo.pluie < 0.4) jeu.particules.emettre('poussiere', x, y + 0.1, z, 2, Math.min(1.8, 0.5 + masse / 6000));
+    else if ((rapide || masse > 3000) && d < 60 && jeu.meteo.pluie < 0.4) jeu.particules.emettre('poussiere', x, y + 0.05, z, 2, Math.min(1.6, 0.35 + masse / 6000));
   }
   if (d < 70 && (masse > 15 || d < 12)) jeu.audio.pas(estJoueur ? null : creature.groupe.position, masse, mou, dansEau);
   // les géants font trembler le sol
@@ -293,9 +293,10 @@ function boucle(dtReel) {
   jeu.vegetation.mettreAJour(dt, jeu.temps, cam, jeu.frustum, _pousseurs, jeu.meteo, jeu.ciel);
   jeu.eau.mettreAJour(jeu.tempsReel, jeu.ciel, jeu.meteo);
   const hEcran = jeu.post.hauteur;
-  _v.copy(jeu.ciel.couleurLumiere).multiplyScalar(jeu.ciel.intensiteLumiere * 0.2);
-  jeu.particules.uniformes.uLumiere.value.setRGB(_v.x, _v.y, _v.z).add(jeu.ciel.couleurHorizon);
-  jeu.particules.mettreAJour(dt, hEcran, jeu.particules.uniformes.uLumiere.value);
+  // lumière reçue par les particules : un peu de soleil + la lumière du ciel
+  const cl = jeu.ciel.couleurLumiere, kl = jeu.ciel.intensiteLumiere * 0.2, ch = jeu.ciel.couleurHorizon;
+  _couleurParticules.setRGB(cl.r * kl + ch.r, cl.g * kl + ch.g, cl.b * kl + ch.b);
+  jeu.particules.mettreAJour(dt, hEcran, _couleurParticules);
   const humidite = Math.max(0, 1 - Math.max(0, jeu.terrain.hauteur(jc.x, jc.z)) / 4);
   jeu.ambiance.mettreAJour(jeu.tempsReel, hEcran, jeu.ciel, jeu.meteo, humidite);
   jeu.empreintes.mettreAJour(jeu.temps);

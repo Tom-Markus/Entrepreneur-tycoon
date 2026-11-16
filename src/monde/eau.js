@@ -44,7 +44,7 @@ void main() {
   }
   vec3 N = normalize(vec3(nxy.x, 1.0, nxy.y));
   vec3 V = normalize(cameraPosition - vPos);
-  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+  float fres = 0.05 + 0.95 * pow(1.0 - max(dot(N, V), 0.0), 4.0);     // eau calme et sombre : très réfléchissante
   vec3 R = reflect(-V, N); R.y = abs(R.y);
   vec3 ciel = mix(uHorizon, uZenith, pow(clamp(R.y, 0.0, 1.0), 0.55));
   #ifdef REFLETS
@@ -54,8 +54,8 @@ void main() {
   float rs = max(dot(R, uSoleil), 0.0);
   float spec = pow(rs, 420.0) * 7.0 + pow(rs, 48.0) * 0.22;
   // Couleur du volume d'eau : tanins verdâtres en eau douce, bleu-vert en mer
-  vec3 clair = mix(vec3(0.085, 0.17, 0.10), vec3(0.04, 0.19, 0.21), mer);
-  vec3 sombre = mix(vec3(0.012, 0.045, 0.035), vec3(0.006, 0.035, 0.075), mer);
+  vec3 clair = mix(vec3(0.06, 0.11, 0.06), vec3(0.04, 0.19, 0.21), mer);
+  vec3 sombre = mix(vec3(0.006, 0.02, 0.014), vec3(0.006, 0.035, 0.075), mer);
   vec3 lumiere = uHorizon * 1.25 + uCouleurSoleil * 0.22;
   vec3 corps = mix(clair, sombre, 1.0 - exp(-prof * 0.5)) * lumiere;
   float opacite = smoothstep(0.0, 0.14, prof) * (0.22 + 0.78 * (1.0 - exp(-prof * 1.3)));
@@ -105,7 +105,7 @@ export class Eau {
   }
 
   reglerQualite(q) {
-    this.reflets = q.reflets;
+    this.reflets = q.reflets; this.eco = !!q.refletsEco; this.imageReflet = 0;
     this.materiau.defines = q.reflets ? { REFLETS: 1 } : {};
     this.materiau.needsUpdate = true;
     if (q.reflets && !this.cible) {
@@ -133,7 +133,10 @@ export class Eau {
   /** Rend la scène « à l'envers » dans une texture (caméra miroir sous la surface). */
   rendreReflet(renderer, scene, camera, largeur, hauteur) {
     if (!this.reflets || camera.position.y < 0.05) return;
-    const l = Math.max(64, Math.floor(largeur / 2)), h = Math.max(64, Math.floor(hauteur / 2));
+    // mode économique : image trois fois plus petite, recalculée une image sur trois
+    if (this.eco && this.imageReflet++ % 3 !== 0) return;
+    const div = this.eco ? 3 : 2;
+    const l = Math.max(64, Math.floor(largeur / div)), h = Math.max(64, Math.floor(hauteur / div));
     if (this.cible.width !== l || this.cible.height !== h) this.cible.setSize(l, h);
     const cam = this.camReflet, n = this._v.set(0, 1, 0);
     cam.position.set(camera.position.x, -camera.position.y, camera.position.z);

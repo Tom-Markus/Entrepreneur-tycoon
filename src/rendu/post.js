@@ -111,9 +111,9 @@ void main() {
   col = pow(col, vec3(1.0 / 2.2));
   // Étalonnage « documentaire » : ombres légèrement froides, hautes lumières chaudes
   float lum = dot(col, vec3(0.299, 0.587, 0.114));
-  col = mix(vec3(lum), col, 1.07);
+  col = mix(vec3(lum), col, 1.16);
   col += mix(vec3(-0.012, 0.0, 0.016), vec3(0.016, 0.006, -0.014), lum);
-  col = (col - 0.5) * 1.05 + 0.5;
+  col = (col - 0.5) * 1.1 + 0.5;
   // Filtres du mode photo
   if (uFiltre > 0.5) {
     float g = dot(col, vec3(0.299, 0.587, 0.114));
@@ -149,7 +149,7 @@ export class Post {
     this.matFinal = mat(FRAG_FINAL, {
       tScene: { value: null }, tProfondeur: { value: null }, tBloom: { value: null }, tAO: { value: null }, tRayons: { value: null },
       uTexel: { value: new THREE.Vector2() }, uCouleurSoleil: { value: new THREE.Color() },
-      uExposition: { value: 1 }, uBloom: { value: 0.09 }, uRayons: { value: 0 }, uOdorat: { value: 0 }, uTemps: { value: 0 },
+      uExposition: { value: 1 }, uBloom: { value: 0.12 }, uRayons: { value: 0 }, uOdorat: { value: 0 }, uTemps: { value: 0 },
       uDofForce: { value: 0 }, uDofFocus: { value: 10 }, uVignette: { value: 0.55 }, uGrain: { value: 0.018 }, uFiltre: { value: 0 },
       uProche: { value: 0.25 }, uLointain: { value: 2600 },
     });

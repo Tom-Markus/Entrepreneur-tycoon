@@ -73,7 +73,7 @@ Au premier lancement, un test de 3 secondes choisit le niveau adapté à votre a
 | Niveau | Ce qui est activé |
 |---|---|
 | **Bas** | Résolution 60 %, pas d'ombres, végétation clairsemée, vue à 420 m |
-| **Moyen** | Résolution 75 %, ombres à 2 cascades, halo lumineux, rayons du soleil, reliefs du sol, vue à 620 m |
+| **Moyen** | Résolution 80 %, anticrénelage ×2, ombres à 2 cascades, halo lumineux, rayons du soleil, reliefs du sol, reflets économiques sur l'eau, vue à 620 m |
 | **Élevé** | Pleine résolution, anticrénelage ×4, ombres à 3 cascades, occlusion ambiante, profondeur de champ, reflets réels sur l'eau |
 | **Ultra** | Comme Élevé, ombres 2048, nuages plus fins, végétation maximale, vue à 1100 m |
 
@@ -103,7 +103,7 @@ Techniques utilisées : instancing et deux niveaux de détail pour la végétati
 
 - Le jeu a été lancé et piloté automatiquement dans Chromium (Playwright) : écran-titre, nouvelle partie, déplacement, course, rugissement, morsure, esquive, vision olfactive, marquage, nid, carnet (tous les onglets), mode photo avec téléchargement du PNG, repos, caméra cinématique, pause, options, changement de qualité à chaud, sauvegarde puis « Continuer ». **Aucune erreur dans la console** aux quatre niveaux de qualité (Bas, Moyen, Élevé, Ultra).
 - L'IA a tourné 7,5 minutes simulées avec événements forcés (attaques, morts, fuites, réapparitions) : aucune exception, aucune position invalide. La logique de jeu (joueur + IA + faune + carnet) coûte environ **0,25 ms par image**.
-- Charge de rendu mesurée près du lac : Bas ≈ 65 commandes de dessin / 190 000 triangles ; Moyen ≈ 110 / 280 000 ; Élevé ≈ 230 / 850 000 ; Ultra ≈ 300 / 1 100 000. Ces deux derniers niveaux visent les ordinateurs dotés d'une vraie carte graphique.
+- Charge de rendu mesurée près du lac : Bas ≈ 65 commandes de dessin / 190 000 triangles ; Moyen ≈ 100 à 130 / 300 000 à 500 000 selon la densité de forêt ; Élevé ≈ 230 / 850 000 ; Ultra ≈ 300 / 1 100 000. Ces deux derniers niveaux visent les ordinateurs dotés d'une vraie carte graphique.
 
 ## Limites connues
 
@@ -111,7 +111,7 @@ Ces points sont approximatifs ou incomplets ; ils sont listés ici plutôt que c
 
 - **Performances non vérifiées sur un vrai Chromebook.** Les tests ont été faits sur une machine **sans carte graphique** (rendu logiciel, 10 à 27 images/s en « Bas »), ce qui ne permet pas de conclure pour un Chromebook HP. La cible de 30 images/s en « Moyen » est donc un **objectif de conception, pas une mesure**. Si c'est trop lent : passez en « Bas » (le benchmark le fera de lui-même).
 - **Style visuel** : les modèles sont procéduraux et donc stylisés (formes simples, peu de polygones). C'est cohérent et lisible, mais ce n'est pas du photoréalisme.
-- **Eau** : une seule nappe au niveau 0 (la rivière n'a pas de pente). La réfraction est approchée par la transparence et la couleur selon la profondeur, sans déformation de l'image du fond. Les reflets réels n'existent qu'en Élevé/Ultra ; en dessous, l'eau reflète seulement le ciel.
+- **Eau** : une seule nappe au niveau 0 (la rivière n'a pas de pente). La réfraction est approchée par la transparence et la couleur selon la profondeur, sans déformation de l'image du fond. Les reflets réels sont complets en Élevé/Ultra, allégés en Moyen (basse résolution, une image sur trois) et absents en Bas, où l'eau reflète seulement le ciel.
 - **Éclairage** : rendu PBR sans carte d'environnement (lumière du ciel + soleil) ; occlusion ambiante simple calculée à l'écran ; nuages « pseudo-volumétriques » (couches superposées), pas de vrai volume.
 - **Animation** : cinématique inverse à deux os par patte. Sur les pentes fortes, un pied peut flotter ou s'enfoncer un peu ; la nage est rudimentaire.
 - **Stades de croissance** : une même forme d'Allosaurus, modulée (taille, tête plus grosse, filaments et rayures chez le jeune, crêtes chez l'adulte).

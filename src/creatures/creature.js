@@ -28,8 +28,8 @@ export class BanqueCreatures {
 
   materiauPeau() {
     const u = { uBoue: { value: 0 }, uBlessure: { value: 0 } };
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: this.texPeau.detail, normalMap: this.texPeau.normale, roughness: 0.72, metalness: 0 });
-    mat.normalScale.set(0.85, 0.85);
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: this.texPeau.detail, normalMap: this.texPeau.normale, roughness: 0.66, metalness: 0 });
+    mat.normalScale.set(1.15, 1.15);
     mat.userData.cle = 'peau';
     mat.userData.uniformes = u;
     mat.userData.surCompilation = (shader) => {
@@ -41,13 +41,17 @@ export class BanqueCreatures {
         .replace('#include <common>', '#include <common>\nvarying float vHauteur;\nuniform float uBoue, uBlessure;')
         .replace('#include <map_fragment>', `#include <map_fragment>
           float nb = texture2D(map, vMapUv * 0.13).r;
+          // Marbrures : larges variations de teinte qui cassent l'aspect uniforme de la peau
+          float marbre = texture2D(map, vMapUv * 0.021).r * 0.6 + texture2D(map, vMapUv * 0.057 + 0.37).r * 0.4;
+          diffuseColor.rgb *= 0.74 + 0.4 * marbre;
+          float ecaille = texture2D(map, vMapUv).r;
           // Boue qui s'accumule sur le bas du corps
           float boue = uBoue * smoothstep(0.8, 0.1, vHauteur + (nb - 0.75) * 0.9);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.07, 0.05, 0.032), clamp(boue, 0.0, 0.92));
           // Blessures : fines griffures sombres sur les flancs (sobres, sans effusion)
           float griffure = uBlessure * smoothstep(0.9, 0.93, fract(vMapUv.x * 0.31 + nb * 1.4)) * smoothstep(0.35, 0.8, vHauteur) * step(vHauteur, 1.2);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.15, 0.022, 0.016), griffure * 0.8);`)
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.45, clamp(boue, 0.0, 1.0) * 0.5);');
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + (0.82 - ecaille) * 0.9, 0.35, 1.0);\nroughnessFactor = mix(roughnessFactor, 0.45, clamp(boue, 0.0, 1.0) * 0.5);');
     };
     return this.ombres.enregistrer(mat);
   }

@@ -22,11 +22,12 @@ const ALLOSAURUS = {
   tete: { gabarit: 'theropode', L: 0.88, dents: 10, cretes: 'allosaurus', h: 1.45, l: 1.1 },
   patteArr: { x: 0.34, pts: [[0, 1.95], [0.45, 1.2], [-0.25, 0.62], [0.05, 0.1]], r: [[0.22, 0.44], [0.16, 0.24], [0.085, 0.11], [0.09, 0.08]], doigts: { n: 3, l: 0.38, r: 0.07, ecart: 0.75 } },
   bras: { x: 0.3, pts: [[1.75, 1.55], [1.65, 1.2], [1.95, 1.02]], r: [0.085, 0.06, 0.04], griffes: 3 },
-  ornements: null, filaments: null, grainPeau: 3, cotes: 14,
+  ornements: null, filaments: null, grainPeau: 5, cotes: 20, sub: 5,
   motif(u, v, n, k) {
-    const dos = [0.105, 0.088, 0.05], flanc = [0.25, 0.19, 0.105], ventre = [0.5, 0.44, 0.31];
+    const dos = [0.105, 0.08, 0.042], flanc = [0.21, 0.16, 0.085], ventre = [0.44, 0.39, 0.27];
     let c = contreOmbrage(ventre, flanc, dos, v);
-    const bande = lissage(0.2, 0.8, Math.sin(u * 46 + n * 1.7)) * lissage(0.32, 0.72, v) * 0.5 * k;
+    // rayures discrètes, limitées au dos et à la queue (camouflage en sous-bois)
+    const bande = lissage(0.35, 0.9, Math.sin(u * 74 + n * 0.9)) * lissage(0.5, 0.88, v) * 0.22 * k;
     c = mix3(c, [0.04, 0.034, 0.02], bande);
     return moucheter(c, n, 0.14);
   },
@@ -67,7 +68,7 @@ export const ESPECES = {
   }),
 
   compsognathus: deriver(ALLOSAURUS, 0.13, 0.82, {
-    id: 'compsognathus', nom: 'Compsognathus', masse: 3, cotes: 7, sub: 2, grainPeau: 9,
+    id: 'compsognathus', nom: 'Compsognathus', masse: 3, cotes: 10, sub: 3, grainPeau: 14,
     tete: { gabarit: 'theropode', L: 0.09, dents: 0, cretes: null, h: 1.0, oeil: 1.7 },
     filaments: { rangs: 3, hauteur: 0.035, queue: 3.5 },
     motif(u, v, n) {
@@ -81,7 +82,7 @@ export const ESPECES = {
   }),
 
   dryosaurus: {
-    id: 'dryosaurus', nom: 'Dryosaurus', type: 'bipede', longueur: 3.4, masse: 90, rayon: 0.32, cotes: 8, grainPeau: 5,
+    id: 'dryosaurus', nom: 'Dryosaurus', type: 'bipede', longueur: 3.4, masse: 90, rayon: 0.32, cotes: 12, sub: 4, grainPeau: 8,
     queue: [[-0.35, 1.0, 0.14, 0.2], [-0.75, 0.99, 0.1, 0.15], [-1.15, 0.98, 0.07, 0.1], [-1.55, 0.97, 0.045, 0.06], [-1.95, 0.96, 0.02, 0.03]],
     avant: [['bassin', 0, 1.02, 0.19, 0.26], ['dos', 0.35, 1.03, 0.21, 0.28], ['torse', 0.7, 1.0, 0.18, 0.25], ['cou1', 0.95, 1.05, 0.09, 0.11], ['cou2', 1.1, 1.2, 0.065, 0.075], ['tete', 1.2, 1.33, 0.06, 0.07]],
     tete: { gabarit: 'ornithopode', L: 0.26, oeil: 1.5 },
@@ -99,7 +100,7 @@ export const ESPECES = {
   },
 
   stegosaurus: {
-    id: 'stegosaurus', nom: 'Stegosaurus', type: 'quadrupede', longueur: 7.5, masse: 4000, rayon: 1.15, grainPeau: 2.4, cotes: 14,
+    id: 'stegosaurus', nom: 'Stegosaurus', type: 'quadrupede', longueur: 7.5, masse: 4000, rayon: 1.15, grainPeau: 4, cotes: 18, sub: 4, crete: 0.22,
     queue: [[-0.7, 2.2, 0.42, 0.52], [-1.4, 2.05, 0.3, 0.38], [-2.1, 1.9, 0.2, 0.26], [-2.8, 1.8, 0.12, 0.16], [-3.4, 1.75, 0.07, 0.09], [-3.9, 1.72, 0.03, 0.04]],
     avant: [['bassin', 0, 2.25, 0.62, 0.72], ['dos', 0.8, 2.2, 0.72, 0.8], ['torse', 1.6, 1.85, 0.6, 0.68], ['cou1', 2.3, 1.5, 0.3, 0.36], ['cou2', 2.75, 1.3, 0.18, 0.2], ['tete', 3.1, 1.2, 0.11, 0.12]],
     tete: { gabarit: 'stegosaure', L: 0.45 },
@@ -116,7 +117,7 @@ export const ESPECES = {
   },
 
   diplodocus: {
-    id: 'diplodocus', nom: 'Diplodocus', type: 'quadrupede', longueur: 24, masse: 13000, rayon: 1.7, grainPeau: 2, cotes: 14, sub: 3,
+    id: 'diplodocus', nom: 'Diplodocus', type: 'quadrupede', longueur: 24, masse: 13000, rayon: 1.7, grainPeau: 3.4, cotes: 18, sub: 4, crete: 0.18,
     queue: [[-1.2, 3.3, 0.6, 0.75], [-2.6, 3.2, 0.42, 0.52], [-4.2, 3.0, 0.28, 0.34], [-6, 2.8, 0.18, 0.22], [-8, 2.6, 0.11, 0.13], [-10, 2.45, 0.06, 0.07], [-12, 2.35, 0.035, 0.04], [-13.6, 2.3, 0.015, 0.02]],
     avant: [['bassin', 0, 3.35, 0.85, 1.0], ['dos', 1.3, 3.4, 0.95, 1.1], ['torse', 2.7, 3.2, 0.85, 1.0], ['cou1', 3.8, 3.3, 0.42, 0.5], ['cou2', 5.0, 3.7, 0.3, 0.34], ['cou3', 6.2, 4.1, 0.24, 0.27], ['cou4', 7.4, 4.45, 0.2, 0.22], ['cou5', 8.6, 4.7, 0.17, 0.19], ['tete', 9.6, 4.85, 0.14, 0.15]],
     tete: { gabarit: 'sauropode', L: 0.6, h: 0.8 },
@@ -134,7 +135,7 @@ export const ESPECES = {
   },
 
   brachiosaurus: {
-    id: 'brachiosaurus', nom: 'Brachiosaurus', type: 'quadrupede', longueur: 22, masse: 35000, rayon: 2.2, grainPeau: 1.8, cotes: 14, sub: 3,
+    id: 'brachiosaurus', nom: 'Brachiosaurus', type: 'quadrupede', longueur: 22, masse: 35000, rayon: 2.2, grainPeau: 3, cotes: 18, sub: 4, crete: 0.18,
     queue: [[-1.0, 3.9, 0.75, 0.9], [-2.2, 3.6, 0.5, 0.6], [-3.5, 3.3, 0.32, 0.38], [-4.8, 3.05, 0.18, 0.22], [-6.0, 2.9, 0.09, 0.1], [-7.0, 2.82, 0.03, 0.04]],
     avant: [['bassin', 0, 4.1, 1.1, 1.25], ['dos', 1.5, 4.5, 1.25, 1.4], ['torse', 3.0, 4.9, 1.1, 1.3], ['cou1', 4.1, 5.6, 0.6, 0.7], ['cou2', 5.0, 7.0, 0.45, 0.5], ['cou3', 5.8, 8.5, 0.37, 0.4], ['cou4', 6.5, 10.0, 0.31, 0.33], ['cou5', 7.1, 11.4, 0.26, 0.28], ['tete', 7.5, 12.4, 0.2, 0.22]],
     tete: { gabarit: 'sauropode', L: 0.75, h: 1.25 },

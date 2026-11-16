@@ -175,7 +175,9 @@ function foliole(g, x, y, angle, longueur, largeur, couleur) {
   g.beginPath(); g.moveTo(0, 0);
   g.quadraticCurveTo(longueur * 0.45, -largeur, longueur, 0);
   g.quadraticCurveTo(longueur * 0.45, largeur, 0, 0);
-  g.fill(); g.restore();
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 0.6; g.beginPath(); g.moveTo(0, 0); g.lineTo(longueur * 0.95, 0); g.stroke();
+  g.restore();
 }
 
 /** Fronde pennée (fougère ou cycadale) dessinée dans une tuile de 256 × 512. */
@@ -199,12 +201,13 @@ function dessinerFronde(g, x0, alea, opt) {
 
 /** Atlas du feuillage : 8 tuiles côte à côte (voir TUILES). */
 export function creerAtlasFeuillage() {
-  const c = toile(256 * NB_TUILES, 512);
+  const c = toile(512 * NB_TUILES, 1024);       // 512 × 1024 pixels par tuile
   const g = c.getContext('2d');
+  g.scale(2, 2);                                 // les dessins ci-dessous restent écrits en 256 × 512
   const alea = creerAlea(4242);
   // 0 — fronde de fougère
   dessinerFronde(g, 0, alea, { tige: '#4a5a22', epaisseurTige: 5, paires: 26, longueur: 112, largeur: 9, inclinaison: 0.42,
-    couleurs: ['#3f7a2a', '#4c8a30', '#356b26', '#5a9638'] });
+    couleurs: ['#2f6b22', '#3c7c28', '#27591e', '#4a8a2e'] });
   // 1 — feuille de cycadale : folioles raides, étroites, vert sombre
   dessinerFronde(g, 256, alea, { tige: '#56602a', epaisseurTige: 6, paires: 34, longueur: 100, largeur: 4.5, inclinaison: 0.3,
     couleurs: ['#2c5a26', '#346630', '#27501f'] });
@@ -290,7 +293,21 @@ export function creerAtlasFeuillage() {
       g.beginPath(); g.moveTo(px, py); g.lineTo(px + (alea() - 0.5) * 8, py + lon); g.stroke();
     }
   }
+  // Ombrage peint : chaque feuillage est plus sombre vers sa base et légèrement moucheté,
+  // ce qui donne du volume même sous une lumière plate.
+  g.globalCompositeOperation = 'source-atop';
+  for (let t = 0; t < 7; t++) {
+    const grad = g.createLinearGradient(0, 512, 0, 0);
+    grad.addColorStop(0, 'rgba(0,10,0,0.42)'); grad.addColorStop(0.55, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(255,255,160,0.10)');
+    g.fillStyle = grad; g.fillRect(t * 256, 0, 256, 512);
+    for (let i = 0; i < 260; i++) {
+      g.fillStyle = alea() > 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,190,0.07)';
+      g.beginPath(); g.arc(t * 256 + alea() * 256, alea() * 512, 3 + alea() * 9, 0, 6.3); g.fill();
+    }
+  }
+  g.globalCompositeOperation = 'source-over';
   const tex = texToile(c);
+  tex.anisotropy = 8;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   return tex;
 }

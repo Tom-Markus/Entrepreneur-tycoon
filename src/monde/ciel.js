@@ -220,7 +220,8 @@ export class Ciel {
 
     // Lumière ambiante (ciel + rebond du sol)
     this.hemisphere.color.copy(this.couleurZenith).lerp(this.couleurHorizon, 0.45);
-    this.hemisphere.groundColor.copy(this.couleurHorizon).multiplyScalar(0.28).add(this._c.setRGB(0.05, 0.04, 0.025).multiplyScalar(this.jour));
+    // le sol renvoie une lumière verdâtre (rebond sur la végétation)
+    this.hemisphere.groundColor.copy(this.couleurHorizon).multiplyScalar(0.22).add(this._c.setRGB(0.035, 0.06, 0.02).multiplyScalar(this.jour));
     this.hemisphere.intensity = 4.6 + this.eclair * 14;
     if (this.eclair > 0) this.hemisphere.color.lerp(this._c.setRGB(0.8, 0.85, 1), Math.min(1, this.eclair));
 
