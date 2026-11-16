@@ -137,6 +137,7 @@ export const CONFIG = {
         bloom: false, ao: false, aoFin: false, dof: false, rayons: false, rayonsFin: false, reflets: false, nettete: 0,
         nuagesPas: 1, distanceVue: 380, densiteVegetation: 0.2, porteeProche: 0.4, detailTerrain: 0.65,
         particules: 0.3, normalesTerrain: false, caustiques: false,
+        environnement: false, volumetrique: 0, contact: false,
       },
       moyen: {
         nom: 'Moyen', description: 'Portable récent sans carte graphique dédiée',
@@ -145,6 +146,7 @@ export const CONFIG = {
         bloom: true, ao: false, aoFin: false, dof: false, rayons: true, rayonsFin: false, reflets: true, refletsEco: true, nettete: 0,
         nuagesPas: 2, distanceVue: 620, densiteVegetation: 0.36, porteeProche: 0.6, detailTerrain: 1,
         particules: 0.7, normalesTerrain: true, caustiques: true,
+        environnement: true, volumetrique: 8, contact: false,
       },
       eleve: {
         nom: 'Élevé', description: 'Ordinateur avec carte graphique',
@@ -153,6 +155,7 @@ export const CONFIG = {
         bloom: true, ao: true, aoFin: false, dof: true, rayons: true, rayonsFin: false, reflets: true, nettete: 0.3,
         nuagesPas: 4, distanceVue: 900, densiteVegetation: 0.6, porteeProche: 1, detailTerrain: 1.25,
         particules: 1, normalesTerrain: true, caustiques: true,
+        environnement: true, volumetrique: 16, contact: true,
       },
       // ULTRA : aucune retenue, réservé aux PC puissants (carte graphique dédiée récente).
       // Végétation maximale, arbres détaillés jusqu'à 250 m, 4 cascades d'ombres en 2048,
@@ -164,6 +167,7 @@ export const CONFIG = {
         bloom: true, ao: true, aoFin: true, dof: true, rayons: true, rayonsFin: true, reflets: true, refletsPleins: true, nettete: 0.45,
         nuagesPas: 8, distanceVue: 1500, densiteVegetation: 1, porteeProche: 1.7, detailTerrain: 1.9,
         particules: 2, normalesTerrain: true, caustiques: true,
+        environnement: true, volumetrique: 32, contact: true,
       },
     },
     ordre: ['bas', 'moyen', 'eleve', 'ultra'],

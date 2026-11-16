@@ -20,6 +20,7 @@ import { Qualite } from './noyau/qualite.js';
 import { creerTextureBruit, creerNormaleEau, creerTexturesPeau, creerAtlasFeuillage, creerTextureEmpreinte, creerTextureParticule } from './rendu/textures.js';
 import { Ombres, OmbresSimples } from './rendu/ombres.js';
 import { Post } from './rendu/post.js';
+import { LUMIERE } from './rendu/lumiere.js';
 import { Terrain, LIEUX } from './monde/terrain.js';
 import { Ciel } from './monde/ciel.js';
 import { Meteo } from './monde/meteo.js';
@@ -300,6 +301,9 @@ function boucle(dtReel) {
   for (let i = 0; i < jeu.ecosysteme.pousseurs.length; i++) { const a = jeu.ecosysteme.pousseurs[i], p = _pa[i]; p.x = a.x; p.y = a.y + 0.5; p.z = a.z; p.rayon = 0.8 + a.def.rayon * a.c.echelle * 1.8; _pousseurs.push(p); }
   jeu.vegetation.mettreAJour(dt, jeu.temps, cam, jeu.frustum, _pousseurs, jeu.meteo, jeu.ciel);
   jeu.banque.uCiel.value.copy(jeu.ciel.couleurHorizon);
+  // lumière directe vue par la caméra (feuilles et peau à contre-jour, ombres de contact)
+  LUMIERE.uSoleilVue.value.copy(jeu.ciel.dirLumiere).transformDirection(cam.matrixWorldInverse);
+  LUMIERE.uSoleilCouleur.value.copy(jeu.ciel.couleurLumiere).multiplyScalar(jeu.ciel.intensiteLumiere);
   jeu.eau.mettreAJour(jeu.tempsReel, jeu.ciel, jeu.meteo);
   const hEcran = jeu.post.hauteur;
   // lumière reçue par les particules : un peu de soleil + la lumière du ciel
@@ -335,6 +339,14 @@ jeu.rendre = () => {
     // légère profondeur de champ : marquée en mode cinématique, discrète sinon
     post.dofFocus = jeu.cameraJeu.distance; post.dofForce = jeu.cinematique ? 0.9 : jeu.etat === 'titre' ? 0.6 : 0.3; post.filtre = 0;
   }
+  // brouillard volumétrique et ombres de contact
+  const directe = Math.min(1, ciel.intensiteLumiere / 4.2);
+  post.ombres = jeu.ombres;
+  post.dirSoleil.copy(ciel.dirLumiere); post.dirSoleilVue.copy(LUMIERE.uSoleilVue.value);
+  post.densiteVolume = Math.min(0.12, jeu.scene.fog.density * 13);
+  post.forceVolume = 0.7 * directe * (0.55 + 0.45 * ciel.jour);
+  post.forceContact = 0.45 * directe;
+  ciel.majEnvironnement(r, jeu.tempsReel, jeu.meteo.couverture);
   jeu.eau.rendreReflet(r, jeu.scene, cam, post.largeur, post.hauteur);
   post.rendre(jeu.scene, cam, jeu.tempsReel);
   if (jeu.odorat.intensite > 0.02) { r.autoClear = false; r.setRenderTarget(null); r.render(jeu.odorat.scene, cam); r.autoClear = true; }

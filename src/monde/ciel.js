@@ -52,7 +52,7 @@ const SHADER_FRAGMENT = /* glsl */`
 precision highp float;
 varying vec3 vDir;
 uniform vec3 uSoleil, uLune, uCouleurSoleil, uCouleurZenith, uCouleurHorizon;
-uniform float uJour, uCouverture, uSombre, uTemps, uEclair;
+uniform float uJour, uCouverture, uSombre, uTemps, uEclair, uPourEnv;
 uniform sampler2D uBruit;
 const float PI = 3.141592653589793;
 const float LUMINOSITE_CIEL = ${LUMINOSITE_CIEL};
@@ -78,7 +78,7 @@ vec3 atmosphere(vec3 dir, out vec3 fex) {
   vec3 lin = pow(sunE * ratio * (1.0 - fex), vec3(1.5));
   lin *= mix(vec3(1.0), pow(sunE * ratio * fex, vec3(0.5)), clamp(pow(1.0 - uSoleil.y, 5.0), 0.0, 1.0));
   vec3 l0 = 0.1 * fex;
-  float disque = smoothstep(0.99985, 0.99995, cosT);
+  float disque = smoothstep(0.99985, 0.99995, cosT) * (1.0 - uPourEnv);   // pas de disque solaire dans la carte d'environnement
   l0 += sunE * 19000.0 * fex * disque;
   vec3 tex = (lin + l0) * 0.04 + vec3(0.0, 0.0003, 0.00075);
   return min(pow(max(tex, vec3(0.0)), vec3(1.0 / (1.2 + 1.2 * fondu))), vec3(60.0));
@@ -95,7 +95,7 @@ void main() {
   vec3 col = atmosphere(vec3(dir.x, max(dir.y, 0.0), dir.z), fex) * uJour * LUMINOSITE_CIEL;
   // Nuit : dégradé bleu sombre, étoiles, lune
   float nuit = 1.0 - uJour;
-  vec3 cNuit = mix(vec3(0.010, 0.016, 0.030), vec3(0.002, 0.004, 0.012), clamp(dir.y * 1.4, 0.0, 1.0));
+  vec3 cNuit = mix(vec3(0.020, 0.032, 0.060), vec3(0.004, 0.008, 0.022), clamp(dir.y * 1.4, 0.0, 1.0));
   col += cNuit * nuit;
   if (nuit > 0.01 && dir.y > 0.0) {
     vec3 c = floor(dir * 170.0);
@@ -130,6 +130,8 @@ void main() {
   }
   // Sous l'horizon : on prolonge la couleur de la brume
   col = mix(col, uCouleurHorizon, smoothstep(0.0, -0.08, dir.y));
+  // carte d'environnement : la moitié basse représente le sol (rebond sombre et verdâtre)
+  col = mix(col, uCouleurHorizon * 0.3 + vec3(0.015, 0.028, 0.01) * uJour, smoothstep(-0.02, -0.25, dir.y) * uPourEnv);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -147,12 +149,13 @@ export class Ciel {
     this.jour = 1;            // 1 en plein jour, 0 en pleine nuit
     this.exposition = 1;
     this.eclair = 0;          // flash d'orage (réglé par la météo)
+    this.environnement = false; this.heureEnv = -99; this.couvertEnv = 0; this.tEnv = -99; this.pmrem = null; this.cibleEnv = null;
     this.uniformes = {
       uSoleil: { value: this.dirSoleil }, uLune: { value: this.dirLune },
       uCouleurSoleil: { value: new THREE.Color() }, uCouleurZenith: { value: this.couleurZenith },
       uCouleurHorizon: { value: this.couleurHorizon },
       uJour: { value: 1 }, uCouverture: { value: 0.35 }, uSombre: { value: 0 }, uTemps: { value: 0 },
-      uEclair: { value: 0 }, uBruit: { value: texBruit },
+      uEclair: { value: 0 }, uBruit: { value: texBruit }, uPourEnv: { value: 0 },
     };
     this.materiau = new THREE.ShaderMaterial({
       vertexShader: SHADER_VERTEX, fragmentShader: SHADER_FRAGMENT, uniforms: this.uniformes,
@@ -167,7 +170,38 @@ export class Ciel {
     this._tmp = new THREE.Vector3(); this._c = new THREE.Color();
   }
 
-  reglerQualite(q) { this.materiau.defines.PAS_NUAGES = q.nuagesPas; this.materiau.needsUpdate = true; }
+  reglerQualite(q) {
+    this.materiau.defines.PAS_NUAGES = q.nuagesPas; this.materiau.needsUpdate = true;
+    this.environnement = !!q.environnement; this.heureEnv = -99;
+    if (!this.environnement) { this.scene.environment = null; if (this.cibleEnv) { this.cibleEnv.dispose(); this.cibleEnv = null; } }
+  }
+
+  /**
+   * Éclairage par l'environnement : le ciel est photographié dans toutes les directions puis flouté
+   * (carte « PMREM »). Les matériaux s'en servent pour leurs reflets et leur lumière ambiante :
+   * un sol mouillé reflète alors le ciel, une peau à l'ombre garde du relief.
+   * La carte n'est recalculée que lorsque le ciel a sensiblement changé.
+   */
+  majEnvironnement(renderer, tempsReel, couvert) {
+    if (!this.environnement) return;
+    let ecart = Math.abs(this.heure - this.heureEnv); if (ecart > 12) ecart = 24 - ecart;
+    // pas plus d'une mise à jour toutes les 2,5 s, sauf saut d'heure brutal (chargement d'une partie)
+    if ((ecart < 0.15 && Math.abs(couvert - this.couvertEnv) < 0.06) || (tempsReel - this.tEnv < 2.5 && ecart < 1)) return;
+    if (!this.pmrem) {
+      this.pmrem = new THREE.PMREMGenerator(renderer);
+      this.sceneEnv = new THREE.Scene();
+      const dome = new THREE.Mesh(this.dome.geometry, this.materiau);
+      dome.scale.setScalar(100); dome.frustumCulled = false;
+      this.sceneEnv.add(dome);
+    }
+    this.uniformes.uPourEnv.value = 1;
+    const cible = this.pmrem.fromScene(this.sceneEnv, 0, 0.1, 500);
+    this.uniformes.uPourEnv.value = 0;
+    if (this.cibleEnv) this.cibleEnv.dispose();
+    this.cibleEnv = cible;
+    this.scene.environment = cible.texture; this.scene.environmentIntensity = 0.45;
+    this.heureEnv = this.heure; this.couvertEnv = couvert; this.tEnv = tempsReel;
+  }
 
   /** Avance l'horloge et recalcule soleil, couleurs et lumières. */
   mettreAJour(dt, camera, meteo, tempsReel) {
@@ -185,7 +219,7 @@ export class Ciel {
     couleurCiel(0, 1, 0, s, this.couleurZenith).multiplyScalar(this.jour * LUMINOSITE_CIEL);
     const hx = -s.z, hz = s.x, hl = Math.hypot(hx, hz) || 1;   // horizon, perpendiculaire au soleil
     couleurCiel((hx / hl) * 0.995, 0.1, (hz / hl) * 0.995, s, this.couleurHorizon).multiplyScalar(this.jour * LUMINOSITE_CIEL);
-    this._c.setRGB(0.010, 0.016, 0.030).multiplyScalar(1 - this.jour);
+    this._c.setRGB(0.026, 0.040, 0.075).multiplyScalar(1 - this.jour);     // lueur du ciel nocturne
     this.couleurHorizon.add(this._c); this.couleurZenith.add(this._c.multiplyScalar(0.6));
     // Temps couvert : tout tire vers le gris
     const gris = (this.couleurHorizon.r + this.couleurHorizon.g + this.couleurHorizon.b) / 3;
@@ -208,12 +242,12 @@ export class Ciel {
 
     // Astre actif : soleil le jour, lune la nuit (fondu à zéro au changement)
     const forceLune = lissage(0.02, 0.2, this.dirLune.y) * (1 - this.jour) * (1 - couvert * 0.7);
-    if (forceSoleil * 4.2 >= forceLune * 0.22) {
+    if (forceSoleil * 4.2 >= forceLune * 0.75) {
       this.dirLumiere.copy(this.dirSoleil);
       this.couleurLumiere.copy(c); this.intensiteLumiere = forceSoleil * 4.2;
     } else {
       this.dirLumiere.copy(this.dirLune);
-      this.couleurLumiere.setRGB(0.55, 0.68, 1.0); this.intensiteLumiere = forceLune * 0.22;
+      this.couleurLumiere.setRGB(0.55, 0.68, 1.0); this.intensiteLumiere = forceLune * 0.75;   // clair de lune
     }
     this._tmp.copy(this.dirLumiere).multiplyScalar(-1);
     this.ombres.mettreAJour(this._tmp, this.couleurLumiere, this.intensiteLumiere);

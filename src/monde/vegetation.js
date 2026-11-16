@@ -7,6 +7,7 @@ import { CONFIG } from '../config.js';
 import { creerAlea, hacher } from '../noyau/maths.js';
 import { BIOME } from './terrain.js';
 import { FLORE } from './flore.js';
+import { LUMIERE } from '../rendu/lumiere.js';
 
 const V = CONFIG.vegetation, TC = V.tailleCellule, DEMI = CONFIG.monde.taille / 2, NC = CONFIG.monde.taille / TC;
 const B = BIOME;
@@ -143,9 +144,9 @@ export class Vegetation {
     this.materiauxFeuillage.push(mat);
     const portee = { value: esp.loin };
     esp.uPortee = portee;
-    mat.userData.cle = 'feuillage';
+    mat.userData.cle = 'feuillage2';
     mat.userData.surCompilation = (shader) => {
-      Object.assign(shader.uniforms, this.uniformes, { uPortee: portee });
+      Object.assign(shader.uniforms, this.uniformes, { uPortee: portee, uSoleilVue: LUMIERE.uSoleilVue });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           attribute float aVent;
@@ -175,10 +176,13 @@ export class Vegetation {
           float al = fract(sin(dot(origine.xz, vec2(12.9898, 78.233))) * 43758.5453);
           vTeinte = vec3(0.82 + al * 0.36, 0.86 + fract(al * 7.0) * 0.28, 0.8 + fract(al * 13.0) * 0.3);`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vTeinte;\nvarying float vDistCam;\nuniform float uRosee;\nuniform vec3 uTranslucide;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vTeinte;\nvarying float vDistCam;\nuniform float uRosee;\nuniform vec3 uTranslucide;\nuniform vec3 uSoleilVue;')
         .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vTeinte;\n// de loin, les feuilles deviennent plus fines que les pixels : on renforce leur opacité pour garder des arbres touffus\ndiffuseColor.a = clamp(diffuseColor.a * (1.0 + vDistCam * 0.03), 0.0, 1.0);')
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           totalEmissiveRadiance += diffuseColor.rgb * uTranslucide;      // lumière traversant les feuilles
+          // contre-jour : quand on regarde vers le soleil à travers le feuillage, les feuilles s'illuminent
+          float contreJour = pow(max(dot(-normalize(vViewPosition), uSoleilVue), 0.0), 4.0);
+          totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 1.05, 0.55) * uTranslucide * contreJour * 8.0;
           float eclat = step(0.9988, fract(sin(dot(floor(vMapUv * vec2(1800.0, 440.0)), vec2(12.9898, 78.233))) * 43758.5453));
           totalEmissiveRadiance += vec3(dot(uTranslucide, vec3(0.33))) * eclat * uRosee * 5.0;  // gouttes de rosée qui scintillent`);
     };

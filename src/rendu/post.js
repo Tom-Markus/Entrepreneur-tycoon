@@ -49,6 +49,7 @@ void main() {
 }`;
 const FRAG_AO = /* glsl */`
 varying vec2 vUv; uniform sampler2D tProfondeur; uniform vec2 uTexel; uniform float uEchelleProj;
+uniform mat4 uProj, uInvProj; uniform vec3 uLumiereVue;
 ${PROFONDEUR}
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 void main() {
@@ -65,15 +66,73 @@ void main() {
     float diff = d0 - moy;
     occ += smoothstep(0.02, 0.35, diff) * (1.0 - smoothstep(0.8, 1.8, diff));
   }
-  gl_FragColor = vec4(1.0 - occ / float(PAIRES) * 0.9);
+  float contact = 0.0;
+  #ifdef CONTACT
+  {
+    // Ombres de contact : depuis le pixel, on avance de quelques centimètres vers le soleil ;
+    // si l'on passe derrière un objet proche (brin de fougère, patte, caillou), le pixel est à l'ombre.
+    vec4 v = uInvProj * vec4(vUv * 2.0 - 1.0, brut * 2.0 - 1.0, 1.0);
+    vec3 pv = v.xyz / v.w;
+    float pasC = (0.3 + d0 * 0.012) / 8.0, tC = pasC * (0.6 + ign(gl_FragCoord.yx + 7.0));
+    for (int i = 0; i < 8; i++) {
+      vec3 q = pv + uLumiereVue * tC;
+      vec4 c = uProj * vec4(q, 1.0);
+      vec2 uv = c.xy / c.w * 0.5 + 0.5;
+      if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+        float dz = -q.z - profLineaire(texture2D(tProfondeur, uv).r);
+        if (dz > 0.035 + d0 * 0.004 && dz < 0.45) { contact = 1.0 - float(i) / 10.0; break; }
+      }
+      tC += pasC;
+    }
+  }
+  #endif
+  gl_FragColor = vec4(1.0 - occ / float(PAIRES) * 0.9, 1.0 - contact, 0.0, 1.0);
+}`;
+
+// Brouillard volumétrique : on avance le long du rayon de vue et, à chaque pas, on regarde dans les
+// cartes d'ombre si ce point de l'air est éclairé par le soleil. La brume éclairée brille, la brume
+// à l'ombre reste sombre : cela dessine de vrais faisceaux de lumière entre les troncs.
+const FRAG_VOLUME = /* glsl */`
+#include <packing>
+varying vec2 vUv;
+uniform sampler2D tProfondeur, tOmbre0, tOmbre1, tOmbre2, tOmbre3;
+uniform mat4 uInvProj, uCamMonde, uMatOmbre[4];
+uniform vec3 uSoleil; uniform float uPortee, uDensite; uniform int uCascades;
+float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+bool dedans(vec3 c) { return c.x > 0.02 && c.x < 0.98 && c.y > 0.02 && c.y < 0.98 && c.z < 1.0; }
+float eclaire(vec3 p) {
+  vec4 s; vec3 c;
+  s = uMatOmbre[0] * vec4(p, 1.0); c = s.xyz / s.w;
+  if (dedans(c)) return step(c.z - 0.002, unpackRGBAToDepth(texture2D(tOmbre0, c.xy)));
+  if (uCascades > 1) { s = uMatOmbre[1] * vec4(p, 1.0); c = s.xyz / s.w; if (dedans(c)) return step(c.z - 0.002, unpackRGBAToDepth(texture2D(tOmbre1, c.xy))); }
+  if (uCascades > 2) { s = uMatOmbre[2] * vec4(p, 1.0); c = s.xyz / s.w; if (dedans(c)) return step(c.z - 0.002, unpackRGBAToDepth(texture2D(tOmbre2, c.xy))); }
+  if (uCascades > 3) { s = uMatOmbre[3] * vec4(p, 1.0); c = s.xyz / s.w; if (dedans(c)) return step(c.z - 0.002, unpackRGBAToDepth(texture2D(tOmbre3, c.xy))); }
+  return 1.0;
+}
+void main() {
+  float d = texture2D(tProfondeur, vUv).r;
+  vec4 v = uInvProj * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+  vec3 pv = v.xyz / v.w;
+  float dist = min(length(pv), uPortee);
+  vec3 dir = normalize((uCamMonde * vec4(normalize(pv), 0.0)).xyz), origine = uCamMonde[3].xyz;
+  float pas = dist / float(PAS_VOLUME), t = pas * ign(gl_FragCoord.xy), acc = 0.0;
+  for (int i = 0; i < PAS_VOLUME; i++) {
+    acc += eclaire(origine + dir * t) * exp(-uDensite * t);
+    t += pas;
+  }
+  acc *= pas * uDensite;
+  // la brume diffuse surtout vers l'avant : les faisceaux sont plus vifs quand on regarde vers le soleil
+  float g = 0.55, cosT = dot(dir, uSoleil);
+  float phase = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cosT, 1.5) * 0.3;
+  gl_FragColor = vec4(clamp(acc * phase, 0.0, 1.0));
 }`;
 
 const FRAG_FINAL = /* glsl */`
 varying vec2 vUv;
-uniform sampler2D tScene, tProfondeur, tBloom, tAO, tRayons;
+uniform sampler2D tScene, tProfondeur, tBloom, tAO, tRayons, tVolume;
 uniform vec2 uTexel;
 uniform vec3 uCouleurSoleil;
-uniform float uExposition, uBloom, uRayons, uOdorat, uTemps, uDofForce, uDofFocus, uVignette, uGrain, uFiltre, uNettete;
+uniform float uExposition, uBloom, uRayons, uOdorat, uTemps, uDofForce, uDofFocus, uVignette, uGrain, uFiltre, uNettete, uContact, uVolume;
 ${PROFONDEUR}
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
@@ -102,15 +161,19 @@ void main() {
   }
   #endif
   #ifdef AO
-    float ao = (texture2D(tAO, vUv + uTexel * vec2(1.0, 1.0)).r + texture2D(tAO, vUv + uTexel * vec2(-1.0, 1.0)).r
-              + texture2D(tAO, vUv + uTexel * vec2(1.0, -1.0)).r + texture2D(tAO, vUv + uTexel * vec2(-1.0, -1.0)).r) * 0.25;
-    col *= ao;
+    vec2 ao = (texture2D(tAO, vUv + uTexel * vec2(1.0, 1.0)).rg + texture2D(tAO, vUv + uTexel * vec2(-1.0, 1.0)).rg
+             + texture2D(tAO, vUv + uTexel * vec2(1.0, -1.0)).rg + texture2D(tAO, vUv + uTexel * vec2(-1.0, -1.0)).rg) * 0.25;
+    col *= ao.r * mix(1.0, ao.g, uContact);
   #endif
   #ifdef BLOOM
     col += texture2D(tBloom, vUv).rgb * uBloom;
   #endif
   #ifdef RAYONS
     col += uCouleurSoleil * texture2D(tRayons, vUv).r * uRayons;
+  #endif
+  #ifdef VOLUME
+    col += uCouleurSoleil * uVolume * (texture2D(tVolume, vUv + uTexel * vec2(2.0, 2.0)).r + texture2D(tVolume, vUv + uTexel * vec2(-2.0, 2.0)).r
+         + texture2D(tVolume, vUv + uTexel * vec2(2.0, -2.0)).r + texture2D(tVolume, vUv + uTexel * vec2(-2.0, -2.0)).r) * 0.25;
   #endif
   // Vision olfactive : le monde se désature et bleuit, les odeurs (dessinées ensuite) ressortent
   float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -153,9 +216,16 @@ export class Post {
     this.matReduire = mat(FRAG_REDUIRE, { tSource: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.matAgrandir = mat(FRAG_AGRANDIR, { tBas: { value: null }, tHaut: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.matRayons = mat(FRAG_RAYONS, { tProfondeur: { value: null }, uSoleilUV: { value: new THREE.Vector2() }, uAspect: { value: 1 } });
-    this.matAO = mat(FRAG_AO, { tProfondeur: { value: null }, uTexel: { value: new THREE.Vector2() }, uEchelleProj: { value: 1 }, uProche: { value: 0.25 }, uLointain: { value: 2600 } });
+    this.matAO = mat(FRAG_AO, { tProfondeur: { value: null }, uTexel: { value: new THREE.Vector2() }, uEchelleProj: { value: 1 }, uProche: { value: 0.25 }, uLointain: { value: 2600 },
+      uProj: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uLumiereVue: { value: new THREE.Vector3(0, 1, 0) } });
+    this.matricesOmbre = [new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4(), new THREE.Matrix4()];
+    this.matVolume = mat(FRAG_VOLUME, { tProfondeur: { value: null }, tOmbre0: { value: null }, tOmbre1: { value: null }, tOmbre2: { value: null }, tOmbre3: { value: null },
+      uInvProj: { value: new THREE.Matrix4() }, uCamMonde: { value: new THREE.Matrix4() }, uMatOmbre: { value: this.matricesOmbre },
+      uSoleil: { value: new THREE.Vector3(0, 1, 0) }, uPortee: { value: 90 }, uDensite: { value: 0.02 }, uCascades: { value: 0 } });
+    this.matVolume.defines = { PAS_VOLUME: 8 };
     this.matFinal = mat(FRAG_FINAL, {
-      tScene: { value: null }, tProfondeur: { value: null }, tBloom: { value: null }, tAO: { value: null }, tRayons: { value: null },
+      tScene: { value: null }, tProfondeur: { value: null }, tBloom: { value: null }, tAO: { value: null }, tRayons: { value: null }, tVolume: { value: null },
+      uContact: { value: 0 }, uVolume: { value: 0 },
       uTexel: { value: new THREE.Vector2() }, uCouleurSoleil: { value: new THREE.Color() },
       uExposition: { value: 1 }, uBloom: { value: 0.12 }, uRayons: { value: 0 }, uOdorat: { value: 0 }, uTemps: { value: 0 },
       uDofForce: { value: 0 }, uDofFocus: { value: 10 }, uVignette: { value: 0.55 }, uGrain: { value: 0.018 }, uFiltre: { value: 0 }, uNettete: { value: 0 },
@@ -164,18 +234,23 @@ export class Post {
     this.matAO.defines = { PAIRES: 4 }; this.matRayons.defines = { NB_RAYONS: 20 };
     this.q = { bloom: true, ao: false, dof: false, rayons: true, msaa: 0 };
     this.largeur = 0; this.hauteur = 0;
-    this.cibleScene = null; this.bloomBas = []; this.bloomHaut = []; this.cibleAO = null; this.cibleRayons = null;
+    this.cibleScene = null; this.bloomBas = []; this.bloomHaut = []; this.cibleAO = null; this.cibleRayons = null; this.cibleVolume = null;
+    // Brouillard volumétrique et ombres de contact (réglés par le jeu à chaque image)
+    this.ombres = null; this.forceVolume = 0; this.densiteVolume = 0.02; this.forceContact = 0;
+    this.dirSoleil = new THREE.Vector3(0, 1, 0); this.dirSoleilVue = new THREE.Vector3(0, 1, 0);
     // Paramètres pilotés par le jeu
     this.exposition = 1; this.odorat = 0; this.filtre = 0; this.dofForce = 0; this.dofFocus = 10;
     this.soleilUV = new THREE.Vector2(); this.forceRayons = 0; this.couleurSoleil = new THREE.Color();
   }
 
   reglerQualite(q) {
-    this.q = { bloom: q.bloom, ao: q.ao, dof: q.dof, rayons: q.rayons, msaa: q.msaa };
+    this.q = { bloom: q.bloom, ao: q.ao, dof: q.dof, rayons: q.rayons, msaa: q.msaa, volume: (q.volumetrique || 0) > 0 && q.cascades > 0 };
     const d = {};
+    if (this.q.volume) d.VOLUME = 1;
+    this.matVolume.defines = { PAS_VOLUME: Math.max(4, q.volumetrique || 8) }; this.matVolume.needsUpdate = true;
     if (q.bloom) d.BLOOM = 1; if (q.ao) d.AO = 1; if (q.dof) d.DOF = 1; if (q.rayons) d.RAYONS = 1; if (q.nettete > 0) d.NETTETE = 1;
     this.matFinal.uniforms.uNettete.value = q.nettete || 0;
-    this.matAO.defines = { PAIRES: q.aoFin ? 8 : 4 }; this.matAO.needsUpdate = true;
+    this.matAO.defines = { PAIRES: q.aoFin ? 8 : 4 }; if (q.contact) this.matAO.defines.CONTACT = 1; this.matAO.needsUpdate = true;
     this.matRayons.defines = { NB_RAYONS: q.rayonsFin ? 40 : 20 }; this.matRayons.needsUpdate = true;
     this.matFinal.defines = d; this.matFinal.needsUpdate = true;
     const l = this.largeur, h = this.hauteur;
@@ -189,7 +264,7 @@ export class Post {
     if (l === this.largeur && h === this.hauteur) return;
     this.largeur = l; this.hauteur = h;
     const liberer = (c) => c && c.dispose();
-    liberer(this.cibleScene); this.bloomBas.forEach(liberer); this.bloomHaut.forEach(liberer); liberer(this.cibleAO); liberer(this.cibleRayons);
+    liberer(this.cibleScene); this.bloomBas.forEach(liberer); this.bloomHaut.forEach(liberer); liberer(this.cibleAO); liberer(this.cibleRayons); liberer(this.cibleVolume);
     const profondeur = new THREE.DepthTexture(l, h);
     profondeur.type = THREE.UnsignedIntType;
     this.cibleScene = new THREE.WebGLRenderTarget(l, h, { type: THREE.HalfFloatType, samples: this.q.msaa, depthTexture: profondeur });
@@ -201,6 +276,7 @@ export class Post {
     }
     this.cibleAO = this.q.ao ? cible(1, THREE.UnsignedByteType) : null;
     this.cibleRayons = this.q.rayons ? cible(2, THREE.UnsignedByteType) : null;
+    this.cibleVolume = this.q.volume ? cible(2, THREE.UnsignedByteType) : null;
   }
 
   _passe(materiau, cible) {
@@ -242,6 +318,7 @@ export class Post {
       u.tProfondeur.value = S.depthTexture; u.uTexel.value.set(1 / this.largeur, 1 / this.hauteur);
       u.uEchelleProj.value = camera.projectionMatrix.elements[5] * 0.5;
       u.uProche.value = camera.near; u.uLointain.value = camera.far;
+      u.uProj.value.copy(camera.projectionMatrix); u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uLumiereVue.value.copy(this.dirSoleilVue);
       this._passe(this.matAO, this.cibleAO);
       f.tAO.value = this.cibleAO.texture;
     }
@@ -252,6 +329,26 @@ export class Post {
       f.tRayons.value = this.cibleRayons.texture; f.uRayons.value = this.forceRayons;
     } else f.uRayons.value = 0;
     if (this.q.rayons) f.tRayons.value = this.cibleRayons.texture;
+    // Brouillard volumétrique (seulement si des cartes d'ombre existent)
+    f.uVolume.value = 0;
+    if (this.q.volume) {
+      f.tVolume.value = this.cibleVolume.texture;
+      const lumieres = this.ombres && this.ombres.actives ? this.ombres.csm.lights : null;
+      if (lumieres && lumieres[0].shadow.map && this.forceVolume > 0.01) {
+        const u = this.matVolume.uniforms, n = Math.min(4, lumieres.length);
+        for (let i = 0; i < 4; i++) {
+          const L = lumieres[Math.min(i, n - 1)];
+          u['tOmbre' + i].value = L.shadow.map ? L.shadow.map.texture : lumieres[0].shadow.map.texture;
+          this.matricesOmbre[i].copy(L.shadow.matrix);
+        }
+        u.uCascades.value = n; u.tProfondeur.value = S.depthTexture;
+        u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uCamMonde.value.copy(camera.matrixWorld);
+        u.uSoleil.value.copy(this.dirSoleil); u.uPortee.value = this.ombres.csm.maxFar; u.uDensite.value = this.densiteVolume;
+        this._passe(this.matVolume, this.cibleVolume);
+        f.uVolume.value = this.forceVolume;
+      }
+    }
+    f.uContact.value = this.forceContact;
     f.uCouleurSoleil.value.copy(this.couleurSoleil);
     f.uExposition.value = this.exposition; f.uOdorat.value = this.odorat; f.uTemps.value = temps;
     f.uFiltre.value = this.filtre; f.uDofForce.value = this.dofForce; f.uDofFocus.value = this.dofFocus;

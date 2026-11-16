@@ -87,6 +87,10 @@ Au premier lancement, un test de 3 secondes choisit le niveau adapté à votre a
 
 ![Niveau Ultra](docs/ultra.png)
 
+**Lumière** (à partir de « Moyen ») : le ciel éclaire la scène et se reflète sur les surfaces mouillées (éclairage par l'environnement), la brume dessine de vrais faisceaux de lumière entre les troncs (brouillard volumétrique calculé à partir des cartes d'ombre), les feuilles et la peau s'illuminent à contre-jour. En « Élevé » et « Ultra » s'ajoutent des ombres de contact au pied des plantes et des animaux. La nuit est éclairée par la lune.
+
+![Lumière du matin en forêt vierge, niveau Moyen](docs/lumiere-matin.png)
+
 Le réglage **Résolution de l'image** est indépendant du niveau de qualité et propose cinq modes : « Automatique » (baisse la résolution quand le jeu passe sous 30 images/s, jusqu'à 55 %), « Automatique modérée » (pareil, mais jamais sous 80 %), « Nette » (100 % fixe), « Douce » (80 % fixe) et « Très douce » (62 % fixe). Les modes « Douce » donnent une image adoucie même sur une machine rapide. L'option « Afficher les images par seconde » montre aussi le nombre de commandes de dessin et de triangles.
 
 ## Organisation du code
@@ -125,7 +129,8 @@ Ces points sont approximatifs ou incomplets ; ils sont listés ici plutôt que c
 - **Style visuel** : les modèles sont procéduraux et donc stylisés. Les arbres sont faits de plans texturés croisés : de très près, on voit que le feuillage est plat. C'est cohérent et lisible, mais ce n'est pas du photoréalisme.
 - **Arbres lointains** : au-delà de la distance de détail, chaque grand arbre devient deux panneaux croisés ; le changement peut se remarquer en avançant.
 - **Eau** : une seule nappe au niveau 0 (la rivière n'a pas de pente). La réfraction est approchée par la transparence et la couleur selon la profondeur, sans déformation de l'image du fond. Les reflets réels sont complets en Élevé/Ultra, allégés en Moyen (basse résolution, une image sur trois) et absents en Bas, où l'eau reflète seulement le ciel.
-- **Éclairage** : rendu PBR sans carte d'environnement (lumière du ciel + soleil) ; occlusion ambiante simple calculée à l'écran ; nuages « pseudo-volumétriques » (couches superposées), pas de vrai volume.
+- **Éclairage** : la carte d'environnement ne contient que le ciel (pas les arbres ni le relief) et n'est recalculée que lorsque le ciel change. Le brouillard volumétrique s'arrête à la portée des ombres (90 m en Moyen, 320 m en Ultra) et n'est calculé qu'au quart de la résolution. Les ombres de contact sont une approximation à l'écran. Pas de reflets à l'écran sur le sol ni d'anticrénelage temporel. Nuages « pseudo-volumétriques » (couches superposées).
+- **« Bas » ne reçoit aucun de ces effets de lumière** (pas d'ombres portées, donc pas de faisceaux).
 - **Animation** : cinématique inverse à deux os par patte. Sur les pentes fortes, un pied peut flotter ou s'enfoncer un peu ; la nage est rudimentaire.
 - **Stades de croissance** : une même forme d'Allosaurus, modulée (taille, tête plus grosse, filaments et rayures chez le jeune, crêtes chez l'adulte).
 - **Écosystème** : les animaux ne sont pas sauvegardés (ils reprennent leur domaine au chargement). Les collisions sont des cercles ; les animaux contournent le relief et l'eau, mais de façon simple. Le Brachiosaurus n'atteint pas réellement les branches qu'il broute.

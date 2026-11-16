@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { borner, amortir, lissage, fract, melanger } from '../noyau/maths.js';
 import { construireCreature, creerSquelette } from './constructeur.js';
 import { ESPECES } from './especes.js';
+import { LUMIERE } from '../rendu/lumiere.js';
 
 // Objets temporaires réutilisés (aucune allocation pendant le jeu)
 const _qB = new THREE.Quaternion(), _qT = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _qt = new THREE.Quaternion();
@@ -31,15 +32,15 @@ export class BanqueCreatures {
     const u = { uBoue: { value: 0 }, uBlessure: { value: 0 } };
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: this.texPeau.detail, normalMap: this.texPeau.normale, roughness: 0.66, metalness: 0 });
     mat.normalScale.set(1.15, 1.15);
-    mat.userData.cle = 'peau';
+    mat.userData.cle = 'peau2';
     mat.userData.uniformes = u;
     mat.userData.surCompilation = (shader) => {
-      shader.uniforms.uBoue = u.uBoue; shader.uniforms.uBlessure = u.uBlessure; shader.uniforms.uCiel = this.uCiel;
+      shader.uniforms.uBoue = u.uBoue; shader.uniforms.uBlessure = u.uBlessure; shader.uniforms.uCiel = this.uCiel; shader.uniforms.uSoleilVue = LUMIERE.uSoleilVue; shader.uniforms.uSoleilCouleur = LUMIERE.uSoleilCouleur;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float aHauteur;\nvarying float vHauteur;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHauteur = aHauteur;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vHauteur;\nuniform float uBoue, uBlessure;\nuniform vec3 uCiel;')
+        .replace('#include <common>', '#include <common>\nvarying float vHauteur;\nuniform float uBoue, uBlessure;\nuniform vec3 uCiel, uSoleilVue, uSoleilCouleur;')
         .replace('#include <map_fragment>', `#include <map_fragment>
           float nb = texture2D(map, vMapUv * 0.13).r;
           // Marbrures : larges variations de teinte qui cassent l'aspect uniforme de la peau
@@ -55,7 +56,10 @@ export class BanqueCreatures {
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           // Liseré : sur les bords de la silhouette, la peau accroche la lumière du ciel (donne du volume)
           float bord = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0);
-          totalEmissiveRadiance += (diffuseColor.rgb * 1.5 + 0.02) * uCiel * bord;`)
+          totalEmissiveRadiance += (diffuseColor.rgb * 1.5 + 0.02) * uCiel * bord;
+          // à contre-jour, la lumière diffuse sous la peau fine des bords (teinte chaude)
+          float traverse = pow(max(dot(-normalize(vViewPosition), uSoleilVue), 0.0), 2.0) * bord;
+          totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.5, 0.32) * uSoleilCouleur * traverse * 0.55;`)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + (0.82 - ecaille) * 0.9, 0.35, 1.0);\nroughnessFactor = mix(roughnessFactor, 0.45, clamp(boue, 0.0, 1.0) * 0.5);');
     };
     return this.ombres.enregistrer(mat);
